@@ -4,7 +4,17 @@ const ctx = canvas.getContext('2d');
 let WIDTH = canvas.width;
 let HEIGHT = canvas.height;
 
-// Make canvas responsive for mobile
+// Mobile support
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+let touchControls = {
+    left: false,
+    right: false,
+    shoot: false
+};
+let touchStartX = 0;
+let touchStartY = 0;
+
+// Make canvas responsive for mobile (after variables are declared)
 if (isMobile) {
     const maxWidth = Math.min(window.innerWidth, 800);
     const maxHeight = Math.min(window.innerHeight * 0.75, 600);
