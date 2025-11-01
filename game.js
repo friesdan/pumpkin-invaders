@@ -15,6 +15,8 @@ let bigBossMode = false;
 let bigBoss = null;
 let shipDestroying = false;
 let shipDestroyFrame = 0;
+let shipRotation = 0;
+let shipSpinSpeed = 0;
 let levelComplete = false;
 let levelCompleteTimer = 0;
 let levelCompleteMessage = '';
@@ -24,8 +26,23 @@ let enteringName = false;
 let playerName = '';
 let highScores = [];
 let pierceCooldownTimer = 0; // Tracks cooldown after pierce expires
-let shuffledBossNames = [];
-let paused = false; // Randomized boss names for this game
+let shuffledBossNames = []; // Randomized boss names for this game
+let paused = false;
+let combo = 0;
+let comboTimer = 0;
+let particles = [];
+let screenShake = 0;
+let volume = 0.5;
+let colorblindMode = false;
+let showSettings = false;
+let difficulty = 'normal';
+let keyBindings = {
+    left: 'ArrowLeft',
+    right: 'ArrowRight',
+    shoot: [' ', 'a', 's', 'd', 'f'],
+    pause: 'p'
+};
+let remappingKey = null;
 
 // Audio context for sound effects (create once and reuse)
 let audioContext = null;
@@ -33,6 +50,8 @@ let sizzleOscillator = null;
 let sizzleGain = null;
 let spookyMusicOscillators = [];
 let spookyMusicGain = null;
+let backgroundMusicOscillators = [];
+let backgroundMusicGain = null;
 
 function getAudioContext() {
     if (!audioContext) {
@@ -89,6 +108,39 @@ const BULLET_SPEED = 7;
 const DAMAGE_STAGES = 3;
 
 // Shuffle boss names for randomization
+function getDifficultyModifier() {
+    switch(difficulty) {
+        case 'easy': return { health: 0.7, speed: 0.8, damage: 0.7 };
+        case 'hard': return { health: 1.3, speed: 1.2, damage: 1.3 };
+        default: return { health: 1, speed: 1, damage: 1 };
+    }
+}
+
+function getColor(normalColor, cbColor) {
+    return colorblindMode ? cbColor : normalColor;
+}
+
+function addScreenShake(intensity) {
+    screenShake = Math.max(screenShake, intensity);
+}
+
+function createParticles(x, y, color, count = 20) {
+    for (let i = 0; i < count; i++) {
+        const angle = (Math.PI * 2 * i) / count;
+        const speed = 2 + Math.random() * 3;
+        particles.push({
+            x: x,
+            y: y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - 1,
+            size: 3 + Math.random() * 5,
+            color: color,
+            life: 30 + Math.random() * 30,
+            maxLife: 60
+        });
+    }
+}
+
 function shuffleBossNames() {
     const bossNames = [
         'Darth Pumpkin', 'Pumpkin Queen', 'Khan Pumpkin', 'Pumpkin Dalek', 'Cyber Pumpkin',
@@ -223,13 +275,13 @@ function drawPlayer() {
     ctx.translate(player.x, player.y);
 
     // Bat body (dark purple)
-    ctx.fillStyle = '#4a3580';
+    ctx.fillStyle = getColor('#4a3580', '#0066cc');
     ctx.beginPath();
     ctx.ellipse(0, 0, 10, 12, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // Bat head
-    ctx.fillStyle = '#5a4590';
+    ctx.fillStyle = getColor('#5a4590', '#0088ee');
     ctx.beginPath();
     ctx.arc(0, -8, 8, 0, Math.PI * 2);
     ctx.fill();
@@ -263,7 +315,7 @@ function drawPlayer() {
     ctx.shadowBlur = 0;
 
     // Left wing
-    ctx.fillStyle = '#6b5bff';
+    ctx.fillStyle = getColor('#6b5bff', '#00aaff');
     ctx.strokeStyle = '#8b7bff';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -288,7 +340,7 @@ function drawPlayer() {
     ctx.stroke();
 
     // Right wing
-    ctx.fillStyle = '#6b5bff';
+    ctx.fillStyle = getColor('#6b5bff', '#00aaff');
     ctx.strokeStyle = '#8b7bff';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -315,9 +367,23 @@ function drawPlayer() {
     // Shield glow if active
     if (shield > 0) {
         const shieldAlpha = shield / 100;
-        ctx.strokeStyle = `rgba(0, 255, 255, ${shieldAlpha * 0.6})`;
+        // Color matches shield bar
+        let glowColor;
+        if (shield > 75) {
+            glowColor = '0, 255, 0'; // Green
+        } else if (shield > 50) {
+            glowColor = '136, 255, 0'; // Yellow-green
+        } else if (shield > 33) {
+            glowColor = '255, 170, 0'; // Orange
+        } else if (shield > 15) {
+            glowColor = '255, 102, 0'; // Dark orange
+        } else {
+            glowColor = '255, 0, 0'; // Red
+        }
+        
+        ctx.strokeStyle = `rgba(${glowColor}, ${shieldAlpha * 0.6})`;
         ctx.lineWidth = 3;
-        ctx.shadowColor = '#00ffff';
+        ctx.shadowColor = `rgb(${glowColor})`;
         ctx.shadowBlur = 10;
         ctx.beginPath();
         ctx.arc(0, 0, 35, 0, Math.PI * 2);
@@ -453,7 +519,7 @@ function drawPumpkin(pumpkin) {
         const alpha = 1 - (pumpkin.explosionFrame / 10);
 
         ctx.globalAlpha = alpha;
-        ctx.fillStyle = pumpkin.color || '#ff6600';
+        ctx.fillStyle = getColor(pumpkin.color || '#ff6600', pumpkin.color || '#ff9933');
         ctx.beginPath();
         ctx.arc(0, 0, size, 0, Math.PI * 2);
         ctx.fill();
@@ -470,7 +536,7 @@ function drawPumpkin(pumpkin) {
     ctx.scale(scale, scale);
 
     // Pumpkin body
-    ctx.fillStyle = pumpkin.color || '#ff6600';
+    ctx.fillStyle = getColor(pumpkin.color || '#ff6600', pumpkin.color || '#ff9933');
     ctx.beginPath();
     ctx.ellipse(0, 0, 20, 18, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -1216,23 +1282,54 @@ function drawBossProjectile(projectile) {
 
 // Draw ship destruction animation
 function drawShipDestruction() {
+    // Draw spinning ship during out-of-control phase
+    if (shipDestroyFrame <= 50) {
+        ctx.save();
+        ctx.translate(player.x, player.y);
+        ctx.rotate(shipRotation);
+        ctx.globalAlpha = Math.max(0.3, 1 - (shipDestroyFrame / 50));
+        
+        // Draw simplified bat ship
+        ctx.fillStyle = '#6b5bff';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 10, 12, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Wings
+        ctx.beginPath();
+        ctx.moveTo(-10, 0);
+        ctx.lineTo(-25, -5);
+        ctx.lineTo(-20, 8);
+        ctx.closePath();
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.moveTo(10, 0);
+        ctx.lineTo(25, -5);
+        ctx.lineTo(20, 8);
+        ctx.closePath();
+        ctx.fill();
+        
+        ctx.restore();
+    }
+    
     // Draw pumpkin bits
     for (let bit of pumpkinBits) {
         ctx.save();
         ctx.fillStyle = bit.color;
-        ctx.globalAlpha = bit.life / 60;
+        ctx.globalAlpha = bit.life / 80;
         ctx.beginPath();
         ctx.arc(bit.x, bit.y, bit.size, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
     }
 
-    // Draw explosion only after ship reaches center
-    if (shipDestroyFrame > 20) {
+    // Draw explosion after ship stops spinning
+    if (shipDestroyFrame > 50) {
         ctx.save();
         ctx.translate(player.x, player.y);
 
-        const frame = shipDestroyFrame - 20;
+        const frame = shipDestroyFrame - 50;
         const maxFrame = 30;
         const progress = Math.min(1, frame / maxFrame);
 
@@ -1289,7 +1386,7 @@ function drawShipDestruction() {
     }
 }
 
-// Play sad bleepy sound (using Web Audio API)
+// Play sad bleepy sound (using Web Audio API) - Extended for dramatic death
 function playSadSound() {
     try {
         const ctx = getAudioContext();
@@ -1301,18 +1398,52 @@ function playSadSound() {
 
         oscillator.type = 'square';
 
-        // Sad descending notes
+        // Longer, more dramatic descending notes
         const now = ctx.currentTime;
-        oscillator.frequency.setValueAtTime(440, now); // A
-        oscillator.frequency.setValueAtTime(392, now + 0.2); // G
-        oscillator.frequency.setValueAtTime(349, now + 0.4); // F
-        oscillator.frequency.setValueAtTime(293, now + 0.6); // D
+        oscillator.frequency.setValueAtTime(440, now);      // A
+        oscillator.frequency.setValueAtTime(415, now + 0.3); // G#
+        oscillator.frequency.setValueAtTime(392, now + 0.6); // G
+        oscillator.frequency.setValueAtTime(370, now + 0.9); // F#
+        oscillator.frequency.setValueAtTime(349, now + 1.2); // F
+        oscillator.frequency.setValueAtTime(330, now + 1.5); // E
+        oscillator.frequency.setValueAtTime(311, now + 1.8); // D#
+        oscillator.frequency.setValueAtTime(293, now + 2.1); // D
+        oscillator.frequency.setValueAtTime(277, now + 2.4); // C#
+        oscillator.frequency.setValueAtTime(262, now + 2.7); // C (final low note)
 
-        gainNode.gain.setValueAtTime(0.3, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
+        gainNode.gain.setValueAtTime(0.3 * volume, now);
+        gainNode.gain.setValueAtTime(0.25 * volume, now + 1.5);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 3.0);
 
         oscillator.start(now);
-        oscillator.stop(now + 0.8);
+        oscillator.stop(now + 3.0);
+    } catch (e) {
+        console.log('Audio error:', e);
+    }
+}
+
+// Shield damage sound
+function playShieldDamageSound() {
+    try {
+        const ctx = getAudioContext();
+        const oscillator = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        oscillator.type = 'sawtooth';
+        const now = ctx.currentTime;
+        
+        // Sharp descending sound for impact
+        oscillator.frequency.setValueAtTime(600, now);
+        oscillator.frequency.exponentialRampToValueAtTime(200, now + 0.15);
+
+        gainNode.gain.setValueAtTime(0.2 * volume, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+
+        oscillator.start(now);
+        oscillator.stop(now + 0.15);
     } catch (e) {
         console.log('Audio error:', e);
     }
@@ -1333,7 +1464,7 @@ function playShootSound() {
         oscillator.frequency.setValueAtTime(800, now);
         oscillator.frequency.exponentialRampToValueAtTime(400, now + 0.1);
 
-        gainNode.gain.setValueAtTime(0.1, now);
+        gainNode.gain.setValueAtTime(0.1 * volume, now);
         gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
 
         oscillator.start(now);
@@ -1455,6 +1586,71 @@ function playExplosionSound(scale = 1) {
         osc2.stop(now + duration);
     } catch (e) {
         console.log('Audio error:', e);
+    }
+
+}
+
+// Background music
+function startBackgroundMusic() {
+    if (backgroundMusicOscillators.length > 0 || bigBossMode) return;
+    
+    try {
+        const ctx = getAudioContext();
+        backgroundMusicGain = ctx.createGain();
+        backgroundMusicGain.connect(ctx.destination);
+        backgroundMusicGain.gain.setValueAtTime(0.03 * volume, ctx.currentTime);
+
+        const melody = [
+            { freq: 220, duration: 0.5 },
+            { freq: 246.94, duration: 0.5 },
+            { freq: 261.63, duration: 0.5 },
+            { freq: 293.66, duration: 0.5 },
+            { freq: 261.63, duration: 0.5 },
+            { freq: 220, duration: 0.5 },
+            { freq: 196, duration: 1.0 },
+            { freq: 174.61, duration: 1.0 }
+        ];
+
+        let time = ctx.currentTime;
+
+        function scheduleNote(noteIndex) {
+            if (noteIndex >= melody.length) {
+                time = ctx.currentTime;
+                setTimeout(() => {
+                    if (backgroundMusicGain && !paused && !gameOver && !bigBossMode) {
+                        scheduleNote(0);
+                    }
+                }, 100);
+                return;
+            }
+
+            const note = melody[noteIndex];
+            const osc = ctx.createOscillator();
+            osc.connect(backgroundMusicGain);
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(note.freq, time);
+
+            osc.start(time);
+            osc.stop(time + note.duration);
+
+            backgroundMusicOscillators.push(osc);
+
+            time += note.duration;
+            setTimeout(() => scheduleNote(noteIndex + 1), note.duration * 1000);
+        }
+
+        scheduleNote(0);
+    } catch (e) {}
+}
+
+function stopBackgroundMusic() {
+    if (backgroundMusicGain) {
+        const ctx = getAudioContext();
+        backgroundMusicGain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+        setTimeout(() => {
+            backgroundMusicOscillators = [];
+            backgroundMusicGain = null;
+        }, 500);
     }
 }
 
@@ -1723,20 +1919,69 @@ function update() {
     if (paused) return;
     if (gameOver) return;
 
+    // Update combo timer
+    if (comboTimer > 0) {
+        comboTimer--;
+        if (comboTimer === 0) {
+            combo = 0;
+        }
+    }
+
+    // Update particles
+    particles = particles.filter(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.2;
+        p.life--;
+        return p.life > 0;
+    });
+
+    // Update screen shake
+    if (screenShake > 0) {
+        screenShake *= 0.9;
+        if (screenShake < 0.1) screenShake = 0;
+    }
+
     // Handle ship destruction cutscene
     if (shipDestroying) {
         shipDestroyFrame++;
 
-        // First 20 frames: Move ship to center
-        if (shipDestroyFrame <= 20) {
-            const targetX = WIDTH / 2;
-            const targetY = HEIGHT / 2;
-            player.x += (targetX - player.x) * 0.1;
-            player.y += (targetY - player.y) * 0.1;
+        // Spinning out of control phase (frames 1-40)
+        if (shipDestroyFrame <= 40) {
+            // Accelerate spin
+            shipSpinSpeed += 0.3;
+            shipRotation += shipSpinSpeed;
+            
+            // Spiral motion - move in expanding circles
+            const spiralRadius = shipDestroyFrame * 3;
+            const spiralSpeed = shipDestroyFrame * 0.15;
+            player.x += Math.cos(spiralSpeed) * 4;
+            player.y += Math.sin(spiralSpeed) * 4;
+            
+            // Keep somewhat on screen but erratic
+            if (player.x < 50) player.x = 50;
+            if (player.x > WIDTH - 50) player.x = WIDTH - 50;
+            if (player.y < 50) player.y = 50;
+            if (player.y > HEIGHT - 50) player.y = HEIGHT - 50;
+            
+            // Create smoke trail particles
+            if (shipDestroyFrame % 3 === 0) {
+                createParticles(player.x, player.y, '#666666', 5);
+            }
         }
 
-        // At frame 20: Create pumpkin bits explosion
-        if (shipDestroyFrame === 20) {
+        // Move to center for final explosion (frames 41-50)
+        if (shipDestroyFrame > 40 && shipDestroyFrame <= 50) {
+            const targetX = WIDTH / 2;
+            const targetY = HEIGHT / 2;
+            player.x += (targetX - player.x) * 0.2;
+            player.y += (targetY - player.y) * 0.2;
+            shipRotation += shipSpinSpeed;
+            shipSpinSpeed *= 0.8; // Slow down spin
+        }
+
+        // Big explosion at frame 50
+        if (shipDestroyFrame === 50) {
             // Create pumpkin bit particles
             for (let i = 0; i < 30; i++) {
                 const angle = (Math.PI * 2 * i) / 30;
@@ -1764,9 +2009,11 @@ function update() {
         // Remove dead bits
         pumpkinBits = pumpkinBits.filter(bit => bit.life > 0);
 
-        if (shipDestroyFrame >= 80) { // 1.33 seconds total
+        if (shipDestroyFrame >= 100) { // 1.33 seconds total
             shipDestroying = false;
             shipDestroyFrame = 0;
+            shipRotation = 0;
+            shipSpinSpeed = 0;
             shield = 100; // Reset shield
             player.x = WIDTH / 2;
             player.y = HEIGHT - 60; // Reset Y position
@@ -1792,10 +2039,10 @@ function update() {
     }
 
     // Move player
-    if (keys['ArrowLeft'] && player.x > 30) {
+    if (keys[keyBindings.left] && player.x > 30) {
         player.x -= player.speed;
     }
-    if (keys['ArrowRight'] && player.x < WIDTH - 30) {
+    if (keys[keyBindings.right] && player.x < WIDTH - 30) {
         player.x += player.speed;
     }
 
@@ -1869,7 +2116,12 @@ function update() {
                         pumpkin.exploding = true;
                         const pumpkinScale = pumpkin.width ? pumpkin.width / PUMPKIN_SIZE : 1;
                         playExplosionSound(pumpkinScale);
-                        score += pumpkin.isBoss ? 500 : 100;
+                        createParticles(pumpkin.x, pumpkin.y, '#ff6600', 15);
+                        addScreenShake(pumpkin.isBoss ? 8 : 3);
+                        combo++;
+                        comboTimer = 120;
+                        const baseScore = pumpkin.isBoss ? 500 : 100;
+                        score += baseScore * combo;
                         updateUI();
 
                         // Drop power-up chance (15% for regular, 50% for boss)
@@ -1976,6 +2228,7 @@ function update() {
         if (grenade.y >= player.y - 20 && grenade.y <= player.y + 20 &&
             grenade.x >= player.x - 25 && grenade.x <= player.x + 25) {
             shield -= GRENADE_DAMAGE;
+            playShieldDamageSound();
             updateUI();
             if (shield <= 0) {
                 shield = 0;
@@ -2054,6 +2307,7 @@ function update() {
         if (projectile.y >= player.y - 30 && projectile.y <= player.y + 30 &&
             projectile.x >= player.x - 30 && projectile.x <= player.x + 30) {
             shield -= 25; // Boss projectiles do more damage
+            playShieldDamageSound();
             updateUI();
             if (shield <= 0) {
                 shield = 0;
@@ -2246,7 +2500,12 @@ function update() {
                         pumpkin.exploding = true;
                         const pumpkinScale = pumpkin.width ? pumpkin.width / PUMPKIN_SIZE : 1;
                         playExplosionSound(pumpkinScale);
-                        score += pumpkin.isBoss ? 500 : 100;
+                        createParticles(pumpkin.x, pumpkin.y, '#ff6600', 15);
+                        addScreenShake(pumpkin.isBoss ? 8 : 3);
+                        combo++;
+                        comboTimer = 120;
+                        const baseScore = pumpkin.isBoss ? 500 : 100;
+                        score += baseScore * combo;
                         updateUI();
 
                         // Drop power-up chance (15% for regular, 50% for boss)
@@ -2312,7 +2571,10 @@ function update() {
                         if (pumpkin.damage >= pumpkin.maxDamage) {
                             pumpkin.exploding = true;
                             playExplosionSound();
-                            score += pumpkin.isBoss ? 500 : 100;
+                            combo++;
+                        comboTimer = 120;
+                        const baseScore = pumpkin.isBoss ? 500 : 100;
+                        score += baseScore * combo;
                             updateUI();
                         }
                     }
@@ -2465,6 +2727,15 @@ function update() {
 
 // Draw everything
 function draw() {
+    ctx.save();
+    
+    // Apply screen shake (only when not paused)
+    if (screenShake > 0 && !paused && !showSettings) {
+        const shakeX = (Math.random() - 0.5) * screenShake;
+        const shakeY = (Math.random() - 0.5) * screenShake;
+        ctx.translate(shakeX, shakeY);
+    }
+
     // Clear canvas
     ctx.fillStyle = '#0a0015';
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
@@ -2616,7 +2887,20 @@ function draw() {
         ctx.fillStyle = '#222222';
         ctx.fillRect(barX, barY, barWidth, barHeight);
 
-        const shieldColor = shield > 66 ? '#00ff00' : (shield > 33 ? '#ffaa00' : '#ff0000');
+        // Smooth color gradient based on shield level
+        let shieldColor;
+        if (shield > 75) {
+            shieldColor = '#00ff00'; // Green
+        } else if (shield > 50) {
+            shieldColor = '#88ff00'; // Yellow-green
+        } else if (shield > 33) {
+            shieldColor = '#ffaa00'; // Orange
+        } else if (shield > 15) {
+            shieldColor = '#ff6600'; // Dark orange
+        } else {
+            shieldColor = '#ff0000'; // Red
+        }
+        
         ctx.fillStyle = shieldColor;
         ctx.fillRect(barX, barY, barWidth * shieldPercent, barHeight);
 
@@ -2859,6 +3143,127 @@ function draw() {
         ctx.fillText('Press ENTER when done (max 15 characters)', WIDTH / 2, HEIGHT / 2 + 120);
     }
 
+    // Draw particles
+    for (let p of particles) {
+        ctx.save();
+        ctx.globalAlpha = p.life / p.maxLife;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // Boss preview
+    if (!bigBossMode && !gameOver && level % 3 === 2 && !paused) {
+        const alivePumpkins = pumpkins.filter(p => p.alive).length;
+        if (alivePumpkins < 5) {
+            const nextBossIndex = Math.floor(level / 3);
+            const nextBossName = shuffledBossNames[nextBossIndex % shuffledBossNames.length];
+            ctx.fillStyle = 'rgba(139, 0, 255, 0.3)';
+            ctx.fillRect(0, HEIGHT - 100, WIDTH, 40);
+            ctx.fillStyle = '#8b00ff';
+            ctx.font = 'bold 24px Arial';
+            ctx.textAlign = 'center';
+            ctx.shadowColor = '#8b00ff';
+            ctx.shadowBlur = 15;
+            ctx.fillText('⚠️ NEXT: ' + nextBossName.toUpperCase(), WIDTH / 2, HEIGHT - 70);
+            ctx.shadowBlur = 0;
+        }
+    }
+
+    // Pierce cooldown display
+    if (pierceCooldownTimer > 0 && !activePowerUps.pierceknife.active && !paused && !gameOver) {
+        const cooldownSeconds = Math.ceil(pierceCooldownTimer / 60);
+        ctx.fillStyle = '#ff6600';
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'right';
+        ctx.fillText('🔪 Cooldown: ' + cooldownSeconds + 's', WIDTH - 20, HEIGHT - 60);
+    }
+
+    // Low shield warning
+    if (shield <= 33 && shield > 0 && !shipDestroying && !paused && !gameOver) {
+        const flash = Math.sin(Date.now() / 100) > 0;
+        if (flash) {
+            ctx.fillStyle = 'rgba(255, 0, 0, 0.15)';
+            ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        }
+    }
+
+    // Draw combo counter
+    if (combo > 1 && !paused && !gameOver) {
+        ctx.fillStyle = '#ffff00';
+        ctx.font = 'bold 30px Arial';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#ffff00';
+        ctx.shadowBlur = 10;
+        ctx.fillText(combo + 'x COMBO!', WIDTH / 2, 100);
+        ctx.shadowBlur = 0;
+    }
+
+    // Settings screen
+    if (showSettings) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.95)';
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+        ctx.fillStyle = '#00ff00';
+        ctx.font = 'bold 40px Arial';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#00ff00';
+        ctx.shadowBlur = 15;
+        ctx.fillText('SETTINGS', WIDTH / 2, 80);
+        ctx.shadowBlur = 0;
+
+        ctx.font = '24px Arial';
+        ctx.fillStyle = '#ffffff';
+        let y = 150;
+
+        ctx.fillText('Difficulty: ' + difficulty.toUpperCase(), WIDTH / 2, y);
+        ctx.fillStyle = '#ffaa00';
+        ctx.font = '18px Arial';
+        ctx.fillText('(Press D to change)', WIDTH / 2, y + 25);
+        y += 80;
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '24px Arial';
+        ctx.fillText('Volume: ' + Math.round(volume * 100) + '%', WIDTH / 2, y);
+        ctx.fillStyle = '#ffaa00';
+        ctx.font = '18px Arial';
+        ctx.fillText('(Press +/- to adjust)', WIDTH / 2, y + 25);
+        y += 80;
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '24px Arial';
+        ctx.fillText('Colorblind Mode: ' + (colorblindMode ? 'ON' : 'OFF'), WIDTH / 2, y);
+        ctx.fillStyle = '#ffaa00';
+        ctx.font = '18px Arial';
+        ctx.fillText('(Press C to toggle)', WIDTH / 2, y + 25);
+        y += 100;
+
+        ctx.fillStyle = '#ffaa00';
+        ctx.font = '20px Arial';
+        ctx.fillText('Press S to close settings', WIDTH / 2, y);
+    }
+
+    // Pause screen
+    if (paused && !showSettings) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+        ctx.fillStyle = '#00ff00';
+        ctx.font = 'bold 60px Arial';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#00ff00';
+        ctx.shadowBlur = 20;
+        ctx.fillText('PAUSED', WIDTH / 2, HEIGHT / 2 - 30);
+        ctx.shadowBlur = 0;
+
+        ctx.font = '25px Arial';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('Press P to resume', WIDTH / 2, HEIGHT / 2 + 30);
+        ctx.fillText('Press S for Settings', WIDTH / 2, HEIGHT / 2 + 70);
+    }
+
     // Game over screen
     if (gameOver && !enteringName && !showHighScores) {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
@@ -2876,6 +3281,8 @@ function draw() {
         ctx.fillText('Press ENTER to restart', WIDTH / 2, HEIGHT / 2 + 80);
         ctx.fillText('Press H to view High Scores', WIDTH / 2, HEIGHT / 2 + 110);
     }
+
+    ctx.restore();
 }
 
 // Game loop
@@ -2896,7 +3303,8 @@ function updateUI() {
 document.addEventListener('keydown', (e) => {
     keys[e.key] = true;
 
-    if (e.key === ' ') {
+    // Check if any shoot key is pressed
+    if (keyBindings.shoot.includes(e.key)) {
         e.preventDefault();
         // Pierce takes priority over laser - only block shooting if laser is active AND pierce is not
         const canShoot = !gameOver && !shipDestroying && !levelComplete &&
@@ -2963,8 +3371,56 @@ document.addEventListener('keydown', (e) => {
         return;
     }
 
-    if (e.key === 'p' || e.key === 'P') {
+    if (showSettings) {
+        if (e.key === 's' || e.key === 'S') {
+            showSettings = false;
+            return;
+        }
+        if (e.key === 'd' || e.key === 'D') {
+            const difficulties = ['easy', 'normal', 'hard'];
+            const currentIndex = difficulties.indexOf(difficulty);
+            difficulty = difficulties[(currentIndex + 1) % difficulties.length];
+            return;
+        }
+        if (e.key === '+' || e.key === '=') {
+            volume = Math.min(1, volume + 0.1);
+            return;
+        }
+        if (e.key === '-' || e.key === '_') {
+            volume = Math.max(0, volume - 0.1);
+            return;
+        }
+        if (e.key === 'c' || e.key === 'C') {
+            colorblindMode = !colorblindMode;
+            return;
+        }
+        return;
+    }
+
+    if (e.key === 's' || e.key === 'S') {
+        if (paused && !showSettings) {
+            showSettings = true;
+            stopSizzle();
+            return;
+        }
+    }
+
+    if (e.key === keyBindings.pause || e.key === keyBindings.pause.toUpperCase()) {
         paused = !paused;
+        if (paused) {
+            stopBackgroundMusic();
+            stopSpookyMusic();
+            stopSizzle();
+        } else {
+            if (!bigBossMode) {
+                startBackgroundMusic();
+            } else if (bigBoss && bigBoss.alive) {
+                // Restart boss music if we're in a boss fight
+                const bossIndex = Math.floor((level / 3) - 1);
+                const musicTheme = bossIndex % 5;
+                startSpookyMusic(musicTheme);
+            }
+        }
         return;
     }
 
@@ -2982,6 +3438,8 @@ document.addEventListener('keydown', (e) => {
             gameOver = false;
             shipDestroying = false;
             shipDestroyFrame = 0;
+            shipRotation = 0;
+            shipSpinSpeed = 0;
             levelComplete = false;
             levelCompleteTimer = 0;
             levelCompleteMessage = '';
@@ -3063,4 +3521,5 @@ loadHighScores();
 shuffleBossNames();
 initPumpkins();
 updateUI();
+startBackgroundMusic();
 gameLoop();
