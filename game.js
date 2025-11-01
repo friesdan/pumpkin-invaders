@@ -24,7 +24,8 @@ let enteringName = false;
 let playerName = '';
 let highScores = [];
 let pierceCooldownTimer = 0; // Tracks cooldown after pierce expires
-let shuffledBossNames = []; // Randomized boss names for this game
+let shuffledBossNames = [];
+let paused = false; // Randomized boss names for this game
 
 // Audio context for sound effects (create once and reuse)
 let audioContext = null;
@@ -1719,6 +1720,7 @@ function addHighScore(name, newScore) {
 
 // Update game state
 function update() {
+    if (paused) return;
     if (gameOver) return;
 
     // Handle ship destruction cutscene
@@ -2958,6 +2960,11 @@ document.addEventListener('keydown', (e) => {
         if (gameOver && !enteringName) {
             showHighScores = !showHighScores;
         }
+        return;
+    }
+
+    if (e.key === 'p' || e.key === 'P') {
+        paused = !paused;
         return;
     }
 
