@@ -3,16 +3,17 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 let WIDTH = canvas.width;
 let HEIGHT = canvas.height;
+
 // Make canvas responsive for mobile
 if (isMobile) {
     const maxWidth = Math.min(window.innerWidth, 800);
     const maxHeight = Math.min(window.innerHeight * 0.75, 600);
     canvas.width = maxWidth;
     canvas.height = maxHeight;
-    // Update WIDTH and HEIGHT constants
     WIDTH = canvas.width;
     HEIGHT = canvas.height;
 }
+
 
 
 // Game state
