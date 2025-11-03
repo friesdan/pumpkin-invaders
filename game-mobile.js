@@ -2864,23 +2864,12 @@ function update() {
                 shield = Math.min(100, shield + 50);
                 updateUI();
             } else if (powerUp.type === 'fullshield') {
-                // Instant effect - restore shield to full and restore clones
+                // Instant effect - restore shield to full and heal existing clones
                 shield = 100;
 
-                // Restore all existing clones to full health
+                // Restore all existing clones to full health (doesn't spawn new clones)
                 for (let clone of cloneShips) {
                     clone.health = 3;
-                }
-
-                // Add clones until we have 5 total
-                while (cloneShips.length < 5) {
-                    const offset = cloneShips.length === 0 ? -60 * SCALE : (cloneShips.length % 2 === 0 ? -60 * SCALE : 60 * SCALE);
-                    cloneShips.push({
-                        x: player.x + offset * (Math.floor(cloneShips.length / 2) + 1),
-                        y: player.y,
-                        bullets: [],
-                        health: 3
-                    });
                 }
 
                 updateUI();
