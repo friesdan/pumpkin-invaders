@@ -99,6 +99,38 @@ let activePowerUps = {
 let cloneShips = [];
 let autoShootCooldown = 0;
 
+// Witch system (appears on level 4+, every 3rd or 6th level)
+let witch = null;
+let witchLevelInterval = 0; // Will be set to 3 or 6 at level 4
+let extraLifeToken = null;
+
+// Parallax starfield (3 layers moving top to bottom)
+let starLayers = [];
+
+function initStars() {
+    starLayers = [
+        // Layer 1 (farthest, slowest) - 30 small stars
+        { stars: [], speed: 0.3, size: 1, opacity: 0.4, count: 30 },
+        // Layer 2 (middle) - 25 medium stars
+        { stars: [], speed: 0.6, size: 2, opacity: 0.7, count: 25 },
+        // Layer 3 (closest, fastest) - 20 larger stars
+        { stars: [], speed: 1.0, size: 3, opacity: 1.0, count: 20 }
+    ];
+
+    // Initialize each layer's stars
+    for (let layer of starLayers) {
+        for (let i = 0; i < layer.count; i++) {
+            layer.stars.push({
+                x: Math.random() * WIDTH,
+                y: Math.random() * HEIGHT
+            });
+        }
+    }
+}
+
+// Initialize stars on load
+initStars();
+
 // Bullet settings
 const BULLET_WIDTH = 4;
 const BULLET_HEIGHT = 15;
@@ -162,8 +194,21 @@ function shuffleBossNames() {
     shuffledBossNames = shuffled;
 }
 
+// Clear all pierce bullets (called when starting a new level)
+function clearPierceBullets() {
+    // Remove all pierce bullets from player
+    player.bullets = player.bullets.filter(bullet => !bullet.pierce);
+
+    // Remove all pierce bullets from clones
+    for (let clone of cloneShips) {
+        clone.bullets = clone.bullets.filter(bullet => !bullet.pierce);
+    }
+}
+
 // Initialize pumpkins
 function initPumpkins() {
+    // Clear pierce bullets when starting new level
+    clearPierceBullets();
     // Check if it's time for a big boss (every 3 levels)
     if (level % 3 === 0) {
         bigBossMode = true;
@@ -495,6 +540,29 @@ function drawCloneShip(clone) {
     ctx.restore();
 }
 
+// Initialize witch
+function initWitch() {
+    // Clear pierce bullets when starting witch level
+    clearPierceBullets();
+
+    witch = {
+        x: -100, // Start off screen left
+        y: 150,
+        width: 60,
+        height: 60,
+        speed: 3,
+        direction: 1, // 1 = right, -1 = left
+        passes: 0,
+        maxPasses: 5,
+        hit: false,
+        alive: true
+    };
+    bigBossMode = false;
+    pumpkins = [];
+    enemyGrenades = [];
+    bossProjectiles = [];
+}
+
 // Draw pumpkin with different damage stages
 function drawPumpkin(pumpkin) {
     if (!pumpkin.alive) return;
@@ -665,6 +733,83 @@ function drawPumpkin(pumpkin) {
         }
     }
 
+    // Draw boss-specific accessories
+    if (pumpkin.name === 'LeBoss James') {
+        // Draw beard
+        ctx.fillStyle = '#1a0a00';
+        ctx.beginPath();
+        ctx.moveTo(-8, 12);
+        ctx.lineTo(-6, 16);
+        ctx.lineTo(-4, 18);
+        ctx.lineTo(-2, 20);
+        ctx.lineTo(0, 21);
+        ctx.lineTo(2, 20);
+        ctx.lineTo(4, 18);
+        ctx.lineTo(6, 16);
+        ctx.lineTo(8, 12);
+        ctx.lineTo(6, 14);
+        ctx.lineTo(4, 15);
+        ctx.lineTo(2, 16);
+        ctx.lineTo(0, 17);
+        ctx.lineTo(-2, 16);
+        ctx.lineTo(-4, 15);
+        ctx.lineTo(-6, 14);
+        ctx.closePath();
+        ctx.fill();
+    } else if (pumpkin.name === 'Boss Hog') {
+        // Draw top hat
+        ctx.fillStyle = '#000000';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+
+        // Hat brim
+        ctx.fillRect(-15, -26, 30, 3);
+        ctx.strokeRect(-15, -26, 30, 3);
+
+        // Hat top
+        ctx.fillRect(-10, -40, 20, 14);
+        ctx.strokeRect(-10, -40, 20, 14);
+
+        // Hat band
+        ctx.fillStyle = '#8B0000';
+        ctx.fillRect(-10, -28, 20, 2);
+    } else if (pumpkin.name === 'Pumpkin Librarian') {
+        // Draw horn rim glasses
+        ctx.strokeStyle = '#000000';
+        ctx.fillStyle = '#87CEEB'; // Light blue lens tint
+        ctx.lineWidth = 2;
+
+        // Left lens
+        ctx.beginPath();
+        ctx.arc(-8, -5, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Right lens
+        ctx.beginPath();
+        ctx.arc(8, -5, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Bridge
+        ctx.beginPath();
+        ctx.moveTo(-2, -5);
+        ctx.lineTo(2, -5);
+        ctx.stroke();
+
+        // Left temple
+        ctx.beginPath();
+        ctx.moveTo(-14, -5);
+        ctx.lineTo(-18, -5);
+        ctx.stroke();
+
+        // Right temple
+        ctx.beginPath();
+        ctx.moveTo(14, -5);
+        ctx.lineTo(18, -5);
+        ctx.stroke();
+    }
+
     ctx.restore();
 }
 
@@ -784,6 +929,120 @@ function drawLaser(x, y) {
     ctx.restore();
 }
 
+// Draw witch on broom
+function drawWitch(witch) {
+    if (!witch.alive) return;
+
+    ctx.save();
+    ctx.translate(witch.x, witch.y);
+
+    // Flip horizontally based on direction
+    if (witch.direction < 0) {
+        ctx.scale(-1, 1);
+    }
+
+    // Glowing outline for visibility
+    ctx.shadowColor = '#FFD700';
+    ctx.shadowBlur = 20;
+    ctx.strokeStyle = '#FFD700';
+    ctx.lineWidth = 2;
+
+    // Broomstick
+    ctx.strokeStyle = '#8B4513';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(-25, 10);
+    ctx.lineTo(25, 10);
+    ctx.stroke();
+
+    // Broom bristles
+    ctx.strokeStyle = '#DAA520';
+    ctx.lineWidth = 2;
+    for (let i = -5; i < 10; i += 3) {
+        ctx.beginPath();
+        ctx.moveTo(20, 10);
+        ctx.lineTo(25 + i, 18);
+        ctx.stroke();
+    }
+
+    // Witch body (black dress)
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.moveTo(0, -5);
+    ctx.lineTo(-12, 10);
+    ctx.lineTo(12, 10);
+    ctx.closePath();
+    ctx.fill();
+
+    // Witch head (green)
+    ctx.fillStyle = '#90EE90';
+    ctx.beginPath();
+    ctx.arc(0, -12, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Witch hat
+    ctx.fillStyle = '#4B0082';
+    ctx.beginPath();
+    ctx.moveTo(-10, -12);
+    ctx.lineTo(0, -28);
+    ctx.lineTo(10, -12);
+    ctx.closePath();
+    ctx.fill();
+
+    // Hat brim
+    ctx.fillRect(-12, -12, 24, 3);
+
+    // Witch face details (evil grin)
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.arc(-3, -13, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(3, -13, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Evil smile
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(0, -10, 4, 0, Math.PI);
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+// Draw extra life token
+function drawExtraLifeToken(token) {
+    ctx.save();
+    ctx.translate(token.x, token.y);
+
+    // Heart shape for extra life
+    ctx.fillStyle = '#FF1493';
+    ctx.shadowColor = '#FF1493';
+    ctx.shadowBlur = 15;
+
+    ctx.beginPath();
+    ctx.moveTo(0, 5);
+    ctx.bezierCurveTo(-8, -2, -15, -8, -15, -13);
+    ctx.bezierCurveTo(-15, -18, -10, -20, -5, -18);
+    ctx.bezierCurveTo(0, -20, 0, -20, 0, -20);
+    ctx.bezierCurveTo(0, -20, 0, -20, 5, -18);
+    ctx.bezierCurveTo(10, -20, 15, -18, 15, -13);
+    ctx.bezierCurveTo(15, -8, 8, -2, 0, 5);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+
+    // "+1" text
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('+1', 0, -10);
+
+    ctx.restore();
+}
+
 // Draw enemy grenade (mini pumpkin)
 function drawGrenade(grenade) {
     ctx.save();
@@ -881,6 +1140,26 @@ function drawPowerUp(powerUp) {
         ctx.lineTo(8, -4);
         ctx.closePath();
         ctx.stroke();
+
+    } else if (powerUp.type === 'fullshield') {
+        // Full Shield icon - larger with plus sign
+        ctx.strokeStyle = '#00ffff';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(0, -12);
+        ctx.lineTo(-10, -5);
+        ctx.lineTo(-10, 5);
+        ctx.lineTo(0, 12);
+        ctx.lineTo(10, 5);
+        ctx.lineTo(10, -5);
+        ctx.closePath();
+        ctx.stroke();
+
+        // Plus sign
+        ctx.fillStyle = '#00ffff';
+        ctx.fillRect(-6, -1, 12, 2);
+        ctx.fillRect(-1, -6, 2, 12);
+        ctx.lineWidth = 2;
         ctx.fillStyle = '#006600';
         ctx.fill();
 
@@ -1422,6 +1701,69 @@ function playSadSound() {
     }
 }
 
+// Happy sound - plays ascending cheerful notes
+function playHappySound() {
+    try {
+        const ctx = getAudioContext();
+        const oscillator = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        oscillator.type = 'sine';
+
+        // Cheerful ascending notes (C major chord arpeggio)
+        const now = ctx.currentTime;
+        oscillator.frequency.setValueAtTime(523, now);      // C5
+        oscillator.frequency.setValueAtTime(659, now + 0.15); // E5
+        oscillator.frequency.setValueAtTime(784, now + 0.3); // G5
+        oscillator.frequency.setValueAtTime(1047, now + 0.45); // C6 (octave higher)
+
+        gainNode.gain.setValueAtTime(0.3 * volume, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.7);
+
+        oscillator.start(now);
+        oscillator.stop(now + 0.7);
+    } catch (e) {
+        console.log('Audio error:', e);
+    }
+}
+
+// Clone hit sound - plays N descending tones based on hits taken (1-3)
+function playCloneHitSound(hitsTaken) {
+    try {
+        const ctx = getAudioContext();
+        const oscillator = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        oscillator.type = 'sine';
+
+        const now = ctx.currentTime;
+        const toneDuration = 0.15; // Short, quick tones
+
+        // Descending frequencies (E, D, C)
+        const frequencies = [659, 587, 523]; // E5, D5, C5
+
+        // Set frequencies for each tone based on hits taken
+        for (let i = 0; i < hitsTaken; i++) {
+            oscillator.frequency.setValueAtTime(frequencies[i], now + (i * toneDuration));
+        }
+
+        // Volume envelope
+        gainNode.gain.setValueAtTime(0.2 * volume, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + (hitsTaken * toneDuration) + 0.1);
+
+        oscillator.start(now);
+        oscillator.stop(now + (hitsTaken * toneDuration) + 0.1);
+    } catch (e) {
+        console.log('Audio error:', e);
+    }
+}
+
 // Shield damage sound
 function playShieldDamageSound() {
     try {
@@ -1907,8 +2249,8 @@ function isHighScore(newScore) {
     return newScore > highScores[highScores.length - 1].score;
 }
 
-function addHighScore(name, newScore) {
-    highScores.push({ name: name, score: newScore });
+function addHighScore(name, newScore, platform = 'desktop') {
+    highScores.push({ name: name, score: newScore, platform: platform });
     highScores.sort((a, b) => b.score - a.score);
     highScores = highScores.slice(0, 100); // Keep only top 100
     saveHighScores();
@@ -2032,7 +2374,19 @@ function update() {
             levelComplete = false;
             level++;
             pumpkinSpeed += 0.25;
-            initPumpkins();
+
+            // Initialize witch interval on level 4
+            if (level === 4 && witchLevelInterval === 0) {
+                witchLevelInterval = Math.random() < 0.5 ? 3 : 6;
+            }
+
+            // Check if witch should appear
+            if (level >= 4 && witchLevelInterval > 0 && level % witchLevelInterval === 0) {
+                initWitch();
+            } else {
+                initPumpkins();
+            }
+
             updateUI();
         }
         return;
@@ -2065,6 +2419,29 @@ function update() {
             }
         }
 
+        // Check collision with witch
+        if (witch && witch.alive && !witch.hit) {
+            const halfSize = witch.width / 2;
+            if (bullet.x > witch.x - halfSize &&
+                bullet.x < witch.x + halfSize &&
+                bullet.y > witch.y - halfSize &&
+                bullet.y < witch.y + halfSize) {
+
+                witch.hit = true;
+                score += 500;
+                playHitSound();
+                updateUI();
+
+                // Witch drops extra life token
+                extraLifeToken = {
+                    x: witch.x,
+                    y: witch.y
+                };
+
+                return true; // Remove bullet
+            }
+        }
+
         // Check collision with big boss
         if (bigBossMode && bigBoss && bigBoss.alive && !bigBoss.exploding) {
             const halfSize = bigBoss.width / 2;
@@ -2086,6 +2463,13 @@ function update() {
                     playExplosionSound(bossScale);
                     score += 1000;
                     updateUI();
+
+                    // Big boss always drops full shield refill
+                    powerUps.push({
+                        x: bigBoss.x,
+                        y: bigBoss.y,
+                        type: 'fullshield'
+                    });
                 }
 
                 return !bullet.pierce; // Keep pierce bullets, remove normal bullets
@@ -2127,10 +2511,13 @@ function update() {
                         // Drop power-up chance (15% for regular, 50% for boss)
                         const dropChance = pumpkin.isBoss ? 0.5 : 0.15;
                         if (Math.random() < dropChance) {
-                            // Filter out pierce if it's active or on cooldown
+                            // Filter out pierce if active/on cooldown, and clone if at max (5)
                             let availablePowerUps = POWERUP_TYPES.filter(type => {
                                 if (type === 'pierceknife') {
                                     return !activePowerUps.pierceknife.active && pierceCooldownTimer <= 0;
+                                }
+                                if (type === 'clone') {
+                                    return cloneShips.length < 5;
                                 }
                                 return true;
                             });
@@ -2217,6 +2604,8 @@ function update() {
             if (grenade.y >= clone.y - 20 && grenade.y <= clone.y + 20 &&
                 grenade.x >= clone.x - 25 && grenade.x <= clone.x + 25) {
                 clone.health--;
+                const hitsTaken = 4 - clone.health; // Calculate hits (1, 2, or 3)
+                playCloneHitSound(hitsTaken);
                 if (clone.health <= 0) {
                     cloneShips.splice(i, 1); // Remove this clone
                 }
@@ -2296,6 +2685,8 @@ function update() {
             if (projectile.y >= clone.y - 30 && projectile.y <= clone.y + 30 &&
                 projectile.x >= clone.x - 30 && projectile.x <= clone.x + 30) {
                 clone.health--;
+                const hitsTaken = 4 - clone.health; // Calculate hits (1, 2, or 3)
+                playCloneHitSound(hitsTaken);
                 if (clone.health <= 0) {
                     cloneShips.splice(i, 1); // Remove this clone
                 }
@@ -2357,6 +2748,10 @@ function update() {
             if (powerUp.type === 'shield') {
                 // Instant effect - restore shield
                 shield = Math.min(100, shield + 50);
+                updateUI();
+            } else if (powerUp.type === 'fullshield') {
+                // Instant effect - restore shield to full
+                shield = 100;
                 updateUI();
             } else if (powerUp.type === 'clone') {
                 // Add a new clone ship with 3 health
@@ -2480,6 +2875,13 @@ function update() {
                     playExplosionSound(bossScale);
                     score += 1000;
                     updateUI();
+
+                    // Big boss always drops full shield refill
+                    powerUps.push({
+                        x: bigBoss.x,
+                        y: bigBoss.y,
+                        type: 'fullshield'
+                    });
                 }
             }
         }
@@ -2511,10 +2913,13 @@ function update() {
                         // Drop power-up chance (15% for regular, 50% for boss)
                         const dropChance = pumpkin.isBoss ? 0.5 : 0.15;
                         if (Math.random() < dropChance) {
-                            // Filter out pierce if it's active or on cooldown
+                            // Filter out pierce if active/on cooldown, and clone if at max (5)
                             let availablePowerUps = POWERUP_TYPES.filter(type => {
                                 if (type === 'pierceknife') {
                                     return !activePowerUps.pierceknife.active && pierceCooldownTimer <= 0;
+                                }
+                                if (type === 'clone') {
+                                    return cloneShips.length < 5;
                                 }
                                 return true;
                             });
@@ -2591,6 +2996,62 @@ function update() {
     } else {
         // Stop sizzle if laser is not active
         stopSizzle();
+    }
+
+    // Update witch
+    if (witch && witch.alive) {
+        if (witch.hit) {
+            // Witch flies away after being hit, then start normal level
+            witch.y -= 3;
+            if (witch.y < -100) {
+                witch.alive = false;
+                witch = null;
+                // Start normal level after witch flies away
+                initPumpkins();
+            }
+        } else {
+            // Witch flies back and forth
+            witch.x += witch.direction * witch.speed;
+
+            // Reverse direction at edges and increment pass count
+            if (witch.x > WIDTH + 100) {
+                witch.direction = -1;
+                witch.passes++;
+            } else if (witch.x < -100 && witch.passes > 0) {
+                witch.direction = 1;
+                witch.passes++;
+            }
+
+            // After 5 passes, witch leaves and normal level starts
+            if (witch.passes >= witch.maxPasses) {
+                witch.alive = false;
+                witch = null;
+                // Start normal level after witch escapes
+                initPumpkins();
+            }
+        }
+    }
+
+    // Update extra life token
+    if (extraLifeToken) {
+        extraLifeToken.y += 2;
+
+        // Check collision with player
+        const dx = player.x - extraLifeToken.x;
+        const dy = player.y - extraLifeToken.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < 30) {
+            lives++;
+            playHappySound();
+            extraLifeToken = null;
+            updateUI();
+        }
+
+        // Remove if off screen
+        if (extraLifeToken && extraLifeToken.y > HEIGHT + 50) {
+            extraLifeToken = null;
+        }
     }
 
     // Update big boss
@@ -2740,13 +3201,23 @@ function draw() {
     ctx.fillStyle = '#0a0015';
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-    // Draw stars
-    ctx.fillStyle = '#ffffff';
-    for (let i = 0; i < 50; i++) {
-        const x = (i * 37) % WIDTH;
-        const y = (i * 71) % HEIGHT;
-        const size = (i % 3) + 1;
-        ctx.fillRect(x, y, size, size);
+    // Update and draw parallax starfield
+    for (let layer of starLayers) {
+        ctx.fillStyle = `rgba(255, 255, 255, ${layer.opacity})`;
+
+        for (let star of layer.stars) {
+            // Update star position (move down)
+            star.y += layer.speed;
+
+            // Wrap around when star goes off bottom
+            if (star.y > HEIGHT) {
+                star.y = 0;
+                star.x = Math.random() * WIDTH;
+            }
+
+            // Draw star
+            ctx.fillRect(star.x, star.y, layer.size, layer.size);
+        }
     }
 
     // Draw game objects
@@ -2760,6 +3231,16 @@ function draw() {
 
     for (let clone of cloneShips) {
         drawCloneShip(clone);
+    }
+
+    // Draw witch if active
+    if (witch && witch.alive) {
+        drawWitch(witch);
+    }
+
+    // Draw extra life token if active
+    if (extraLifeToken) {
+        drawExtraLifeToken(extraLifeToken);
     }
 
     // Draw big boss or regular pumpkins
@@ -2940,17 +3421,10 @@ function draw() {
 
         // Laser indicator
         if (activePowerUps.laser.active) {
-            const timeLeft = Math.ceil(activePowerUps.laser.timer / 60);
-
             ctx.fillStyle = '#00ffff';
             ctx.font = 'bold 14px Arial';
             ctx.textAlign = 'left';
             ctx.fillText('⚡ LASER', panelX + 10, itemY);
-
-            ctx.fillStyle = '#ffffff';
-            ctx.font = '12px Arial';
-            ctx.textAlign = 'right';
-            ctx.fillText(timeLeft + 's', panelX + 150, itemY);
 
             // Time bar
             const barWidth = 130;
@@ -2983,17 +3457,10 @@ function draw() {
 
         // Auto-shoot indicator
         if (activePowerUps.autoshoot.active) {
-            const timeLeft = Math.ceil(activePowerUps.autoshoot.timer / 60);
-
             ctx.fillStyle = '#ffaa00';
             ctx.font = 'bold 14px Arial';
             ctx.textAlign = 'left';
             ctx.fillText('🔫 AUTO', panelX + 10, itemY);
-
-            ctx.fillStyle = '#ffffff';
-            ctx.font = '12px Arial';
-            ctx.textAlign = 'right';
-            ctx.fillText(timeLeft + 's', panelX + 150, itemY);
 
             // Time bar
             const barWidth = 130;
@@ -3011,17 +3478,10 @@ function draw() {
 
         // Pierce knife indicator
         if (activePowerUps.pierceknife.active) {
-            const timeLeft = Math.ceil(activePowerUps.pierceknife.timer / 60);
-
             ctx.fillStyle = '#00ffff';
             ctx.font = 'bold 14px Arial';
             ctx.textAlign = 'left';
             ctx.fillText('🔪 PIERCE', panelX + 10, itemY);
-
-            ctx.fillStyle = '#ffffff';
-            ctx.font = '12px Arial';
-            ctx.textAlign = 'right';
-            ctx.fillText(timeLeft + 's', panelX + 150, itemY);
 
             // Time bar
             const barWidth = 130;
@@ -3033,6 +3493,8 @@ function draw() {
             ctx.fillRect(barX, barY, barWidth, 4);
             ctx.fillStyle = '#00ffff';
             ctx.fillRect(barX, barY, barWidth * timePercent, 4);
+
+            itemY += panelItemHeight;
         }
     }
 
@@ -3069,36 +3531,52 @@ function draw() {
         ctx.textAlign = 'center';
         ctx.shadowColor = '#00ff00';
         ctx.shadowBlur = 15;
-        ctx.fillText('TOP 100 HIGH SCORES', WIDTH / 2, 50);
+        ctx.fillText('TOP HIGH SCORES', WIDTH / 2, 50);
         ctx.shadowBlur = 0;
 
-        // Display high scores in two columns
-        ctx.font = '16px Arial';
-        const startY = 90;
-        const columnWidth = WIDTH / 2;
+        // Separate scores by platform
+        const desktopScores = highScores.filter(s => !s.platform || s.platform === 'desktop').slice(0, 25);
+        const mobileScores = highScores.filter(s => s.platform === 'mobile').slice(0, 25);
 
-        for (let i = 0; i < Math.min(50, highScores.length); i++) {
+        // Display high scores in two columns: Desktop and Mobile
+        const columnWidth = WIDTH / 2;
+        const startY = 110;
+
+        // Desktop column header
+        ctx.fillStyle = '#00ffff';
+        ctx.font = 'bold 24px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('DESKTOP', columnWidth / 2, 90);
+
+        // Mobile column header
+        ctx.fillText('MOBILE', columnWidth + columnWidth / 2, 90);
+
+        ctx.font = '16px Arial';
+
+        // Desktop scores
+        for (let i = 0; i < desktopScores.length; i++) {
             const x = columnWidth / 2;
             const y = startY + (i * 20);
             const rank = i + 1;
 
             ctx.fillStyle = rank <= 3 ? '#ffaa00' : '#ffffff';
             ctx.textAlign = 'left';
-            ctx.fillText(`${rank}. ${highScores[i].name}`, x + 20, y);
+            ctx.fillText(`${rank}. ${desktopScores[i].name}`, x - 150, y);
             ctx.textAlign = 'right';
-            ctx.fillText(highScores[i].score, x + columnWidth - 40, y);
+            ctx.fillText(desktopScores[i].score, x + 150, y);
         }
 
-        for (let i = 50; i < Math.min(100, highScores.length); i++) {
+        // Mobile scores
+        for (let i = 0; i < mobileScores.length; i++) {
             const x = columnWidth + columnWidth / 2;
-            const y = startY + ((i - 50) * 20);
+            const y = startY + (i * 20);
             const rank = i + 1;
 
-            ctx.fillStyle = '#ffffff';
+            ctx.fillStyle = rank <= 3 ? '#ffaa00' : '#ffffff';
             ctx.textAlign = 'left';
-            ctx.fillText(`${rank}. ${highScores[i].name}`, x + 20, y);
+            ctx.fillText(`${rank}. ${mobileScores[i].name}`, x - 150, y);
             ctx.textAlign = 'right';
-            ctx.fillText(highScores[i].score, x + columnWidth - 40, y);
+            ctx.fillText(mobileScores[i].score, x + 150, y);
         }
 
         ctx.fillStyle = '#ffaa00';
@@ -3170,15 +3648,6 @@ function draw() {
             ctx.fillText('⚠️ NEXT: ' + nextBossName.toUpperCase(), WIDTH / 2, HEIGHT - 70);
             ctx.shadowBlur = 0;
         }
-    }
-
-    // Pierce cooldown display
-    if (pierceCooldownTimer > 0 && !activePowerUps.pierceknife.active && !paused && !gameOver) {
-        const cooldownSeconds = Math.ceil(pierceCooldownTimer / 60);
-        ctx.fillStyle = '#ff6600';
-        ctx.font = 'bold 16px Arial';
-        ctx.textAlign = 'right';
-        ctx.fillText('🔪 Cooldown: ' + cooldownSeconds + 's', WIDTH - 20, HEIGHT - 60);
     }
 
     // Low shield warning

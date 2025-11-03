@@ -9,22 +9,36 @@ const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 let touchControls = {
     left: false,
     right: false,
-    shoot: false
+    shoot: false,
+    targetX: null, // Target X position for ship movement
+    movementTouchId: null, // ID of touch controlling movement
+    shootTouchId: null // ID of touch controlling shooting
 };
-let touchStartX = 0;
-let touchStartY = 0;
+let activeTouches = new Map(); // Track all active touches
 
 // Make canvas responsive for mobile (after variables are declared)
 if (isMobile) {
-    const maxWidth = Math.min(window.innerWidth, 800);
-    const maxHeight = Math.min(window.innerHeight * 0.75, 600);
+    // Use more conservative sizing to ensure everything fits on screen
+    const maxWidth = Math.min(window.innerWidth - 20, 800); // Leave 10px margin on each side
+    const maxHeight = Math.min(window.innerHeight * 0.6, 600); // Leave room for UI and headers
     canvas.width = maxWidth;
     canvas.height = maxHeight;
     WIDTH = canvas.width;
     HEIGHT = canvas.height;
 }
 
+// Global scale factor - everything scales proportionally based on screen size
+const REFERENCE_WIDTH = 800;
+const REFERENCE_HEIGHT = 600;
+const SCALE_X = WIDTH / REFERENCE_WIDTH;
+const SCALE_Y = HEIGHT / REFERENCE_HEIGHT;
+const SCALE = Math.min(SCALE_X, SCALE_Y); // Use smaller dimension to maintain aspect ratio
 
+// Helper function to create scaled font strings
+function scaledFont(size, style = '', family = 'Arial') {
+    const scaledSize = Math.max(8, Math.round(size * SCALE)); // Minimum 8px for readability
+    return `${style} ${scaledSize}px ${family}`.trim();
+}
 
 // Game state
 let score = 0;
@@ -82,36 +96,37 @@ function getAudioContext() {
     return audioContext;
 }
 
-// Player
+// Player (all sizes and speeds scaled, smaller on mobile)
+const playerSizeMultiplier = isMobile ? 0.7 : 1; // 30% smaller on mobile
 const player = {
     x: WIDTH / 2,
-    y: HEIGHT - 60,
-    width: 50,
-    height: 40,
-    speed: 5,
+    y: HEIGHT - (60 * SCALE),
+    width: 50 * SCALE * playerSizeMultiplier,
+    height: 40 * SCALE * playerSizeMultiplier,
+    speed: 5 * SCALE,
     bullets: []
 };
 
-// Pumpkins
+// Pumpkins (all sizes and speeds scaled)
 let pumpkins = [];
 let enemyGrenades = [];
 let bossProjectiles = [];
 const PUMPKIN_ROWS = 4;
 const PUMPKIN_COLS = 8;
-const PUMPKIN_SIZE = 40;
-const PUMPKIN_SPACING = 60;
+const PUMPKIN_SIZE = 40 * SCALE;
+const PUMPKIN_SPACING = 60 * SCALE;
 let pumpkinDirection = 1;
-let pumpkinSpeed = 1;
-let pumpkinDropDistance = 20;
-const GRENADE_SPEED = 2;
-const GRENADE_SIZE = 12;
+let pumpkinSpeed = (isMobile ? 0.5 : 1) * SCALE; // Slower speed for mobile, scaled
+let pumpkinDropDistance = (isMobile ? 10 : 20) * SCALE; // Smaller drops for mobile, scaled
+const GRENADE_SPEED = 2 * SCALE;
+const GRENADE_SIZE = 12 * SCALE;
 const GRENADE_DAMAGE = 15;
 
-// Power-ups
+// Power-ups (sizes and speeds scaled)
 let powerUps = [];
 const POWERUP_TYPES = ['laser', 'clone', 'shield', 'autoshoot', 'pierceknife'];
-const POWERUP_SIZE = 30;
-const POWERUP_FALL_SPEED = 3;
+const POWERUP_SIZE = 30 * SCALE;
+const POWERUP_FALL_SPEED = 3 * SCALE;
 let activePowerUps = {
     laser: { active: false, timer: 0 },
     clone: { active: false, timer: 0 },
@@ -121,20 +136,42 @@ let activePowerUps = {
 let cloneShips = [];
 let autoShootCooldown = 0;
 
-// Bullet settings
-const BULLET_WIDTH = 4;
-const BULLET_HEIGHT = 15;
-const BULLET_SPEED = 7;
-// Mobile support
-const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-let touchControls = {
-    left: false,
-    right: false,
-    shoot: false
-};
-let touchStartX = 0;
-let touchStartY = 0;
+// Witch system (appears on level 4+, every 3rd or 6th level)
+let witch = null;
+let witchLevelInterval = 0; // Will be set to 3 or 6 at level 4
+let extraLifeToken = null;
 
+// Parallax starfield (3 layers moving top to bottom)
+let starLayers = [];
+
+function initStars() {
+    starLayers = [
+        // Layer 1 (farthest, slowest) - 30 small stars
+        { stars: [], speed: 0.3 * SCALE, size: 1 * SCALE, opacity: 0.4, count: 30 },
+        // Layer 2 (middle) - 25 medium stars
+        { stars: [], speed: 0.6 * SCALE, size: 2 * SCALE, opacity: 0.7, count: 25 },
+        // Layer 3 (closest, fastest) - 20 larger stars
+        { stars: [], speed: 1.0 * SCALE, size: 3 * SCALE, opacity: 1.0, count: 20 }
+    ];
+
+    // Initialize each layer's stars
+    for (let layer of starLayers) {
+        for (let i = 0; i < layer.count; i++) {
+            layer.stars.push({
+                x: Math.random() * WIDTH,
+                y: Math.random() * HEIGHT
+            });
+        }
+    }
+}
+
+// Initialize stars on load
+initStars();
+
+// Bullet settings (sizes and speeds scaled)
+const BULLET_WIDTH = 4 * SCALE;
+const BULLET_HEIGHT = 15 * SCALE;
+const BULLET_SPEED = 7 * SCALE;
 
 // Pumpkin damage stages (0 = no damage, 1-2 = carved stages, 3 = destroyed)
 const DAMAGE_STAGES = 3;
@@ -194,8 +231,22 @@ function shuffleBossNames() {
     shuffledBossNames = shuffled;
 }
 
+// Clear all pierce bullets (called when starting a new level)
+function clearPierceBullets() {
+    // Remove all pierce bullets from player
+    player.bullets = player.bullets.filter(bullet => !bullet.pierce);
+
+    // Remove all pierce bullets from clones
+    for (let clone of cloneShips) {
+        clone.bullets = clone.bullets.filter(bullet => !bullet.pierce);
+    }
+}
+
 // Initialize pumpkins
 function initPumpkins() {
+    // Clear pierce bullets when starting new level
+    clearPierceBullets();
+
     // Check if it's time for a big boss (every 3 levels)
     if (level % 3 === 0) {
         bigBossMode = true;
@@ -238,7 +289,7 @@ function initPumpkins() {
 
         bigBoss = {
             x: WIDTH / 2,
-            y: 250,
+            y: HEIGHT * 0.25, // Boss at 25% down from top (scales with screen)
             width: bossSize,
             height: bossSize,
             baseSize: PUMPKIN_SIZE,
@@ -260,8 +311,15 @@ function initPumpkins() {
     bigBossMode = false;
     pumpkins = [];
     enemyGrenades = [];
-    const startX = 100;
-    const startY = 80;
+
+    // Scale pumpkin formation to fit screen width
+    const totalFormationWidth = (PUMPKIN_COLS - 1) * PUMPKIN_SPACING + PUMPKIN_SIZE;
+    const availableWidth = WIDTH - (100 * SCALE); // Leave scaled margin on each side
+    const scale = Math.min(1, availableWidth / totalFormationWidth);
+    const scaledSpacing = PUMPKIN_SPACING * scale;
+    const actualFormationWidth = (PUMPKIN_COLS - 1) * scaledSpacing + PUMPKIN_SIZE;
+    const startX = (WIDTH - actualFormationWidth) / 2; // Center the formation
+    const startY = 80 * SCALE; // Scale starting Y position
 
     // Calculate number of boss pumpkins based on level (1 per 10 levels)
     const numBosses = Math.floor(level / 10) + 1;
@@ -282,8 +340,8 @@ function initPumpkins() {
             const canShoot = !isBoss && Math.random() < 0.2; // 20% of non-boss pumpkins can shoot
 
             pumpkins.push({
-                x: startX + col * PUMPKIN_SPACING,
-                y: startY + row * PUMPKIN_SPACING,
+                x: startX + col * scaledSpacing,
+                y: startY + row * scaledSpacing,
                 width: PUMPKIN_SIZE,
                 height: PUMPKIN_SIZE,
                 damage: 0,
@@ -305,6 +363,7 @@ function initPumpkins() {
 function drawPlayer() {
     ctx.save();
     ctx.translate(player.x, player.y);
+    ctx.scale(playerSizeMultiplier, playerSizeMultiplier); // Scale player visually
 
     // Bat body (dark purple)
     ctx.fillStyle = getColor('#4a3580', '#0066cc');
@@ -423,41 +482,6 @@ function drawPlayer() {
         ctx.shadowBlur = 0;
     }
 
-
-    // Draw touch control UI for mobile
-    if (isMobile && !paused && !gameOver) {
-        ctx.globalAlpha = 0.3;
-        
-        // Left button
-        ctx.fillStyle = touchControls.left ? '#00ff00' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.15, HEIGHT - 60, 40, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 30px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('◄', WIDTH * 0.15, HEIGHT - 50);
-        
-        // Right button
-        ctx.fillStyle = touchControls.right ? '#00ff00' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.35, HEIGHT - 60, 40, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.fillText('►', WIDTH * 0.35, HEIGHT - 50);
-        
-        // Shoot button
-        ctx.fillStyle = touchControls.shoot ? '#ff0000' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.85, HEIGHT - 60, 50, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 24px Arial';
-        ctx.fillText('FIRE', WIDTH * 0.85, HEIGHT - 50);
-        
-        ctx.globalAlpha = 1.0;
-    }
-
     ctx.restore();
 }
 
@@ -559,42 +583,30 @@ function drawCloneShip(clone) {
     ctx.fill();
     ctx.stroke();
 
-
-    // Draw touch control UI for mobile
-    if (isMobile && !paused && !gameOver) {
-        ctx.globalAlpha = 0.3;
-        
-        // Left button
-        ctx.fillStyle = touchControls.left ? '#00ff00' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.15, HEIGHT - 60, 40, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 30px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('◄', WIDTH * 0.15, HEIGHT - 50);
-        
-        // Right button
-        ctx.fillStyle = touchControls.right ? '#00ff00' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.35, HEIGHT - 60, 40, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.fillText('►', WIDTH * 0.35, HEIGHT - 50);
-        
-        // Shoot button
-        ctx.fillStyle = touchControls.shoot ? '#ff0000' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.85, HEIGHT - 60, 50, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 24px Arial';
-        ctx.fillText('FIRE', WIDTH * 0.85, HEIGHT - 50);
-        
-        ctx.globalAlpha = 1.0;
-    }
-
     ctx.restore();
+}
+
+// Initialize witch
+function initWitch() {
+    // Clear pierce bullets when starting witch level
+    clearPierceBullets();
+
+    witch = {
+        x: -100 * SCALE, // Start off screen left
+        y: 150 * SCALE,
+        width: 60 * SCALE,
+        height: 60 * SCALE,
+        speed: 3 * SCALE,
+        direction: 1, // 1 = right, -1 = left
+        passes: 0,
+        maxPasses: 5,
+        hit: false,
+        alive: true
+    };
+    bigBossMode = false;
+    pumpkins = [];
+    enemyGrenades = [];
+    bossProjectiles = [];
 }
 
 // Draw pumpkin with different damage stages
@@ -616,8 +628,9 @@ function drawPumpkin(pumpkin) {
     }
 
     if (pumpkin.exploding) {
-        // Explosion effect
-        const size = pumpkin.explosionFrame * 5 * scale;
+        // Explosion effect - bigger pumpkins have proportionally larger explosions
+        const explosionMultiplier = 5 * Math.max(1, scale); // Scale up explosion for bigger pumpkins
+        const size = pumpkin.explosionFrame * explosionMultiplier;
         const alpha = 1 - (pumpkin.explosionFrame / 10);
 
         ctx.globalAlpha = alpha;
@@ -648,7 +661,7 @@ function drawPumpkin(pumpkin) {
         ctx.strokeStyle = '#ffaa00';
         ctx.lineWidth = 3;
         ctx.shadowColor = '#ffaa00';
-        ctx.shadowBlur = 15;
+        ctx.shadowBlur = 15 * SCALE;
         ctx.beginPath();
         ctx.ellipse(0, 0, 20, 18, 0, 0, Math.PI * 2);
         ctx.stroke();
@@ -767,39 +780,83 @@ function drawPumpkin(pumpkin) {
         }
     }
 
+    // Draw boss-specific accessories
+    if (pumpkin.name === 'LeBoss James') {
+        // Draw beard (scaled)
+        const s = SCALE;
+        ctx.fillStyle = '#1a0a00';
+        ctx.beginPath();
+        ctx.moveTo(-8, 12);
+        ctx.lineTo(-6, 16);
+        ctx.lineTo(-4, 18);
+        ctx.lineTo(-2, 20);
+        ctx.lineTo(0, 21);
+        ctx.lineTo(2, 20);
+        ctx.lineTo(4, 18);
+        ctx.lineTo(6, 16);
+        ctx.lineTo(8, 12);
+        ctx.lineTo(6, 14);
+        ctx.lineTo(4, 15);
+        ctx.lineTo(2, 16);
+        ctx.lineTo(0, 17);
+        ctx.lineTo(-2, 16);
+        ctx.lineTo(-4, 15);
+        ctx.lineTo(-6, 14);
+        ctx.closePath();
+        ctx.fill();
+    } else if (pumpkin.name === 'Boss Hog') {
+        // Draw top hat (scaled)
+        const s = SCALE;
+        ctx.fillStyle = '#000000';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
 
-    // Draw touch control UI for mobile
-    if (isMobile && !paused && !gameOver) {
-        ctx.globalAlpha = 0.3;
-        
-        // Left button
-        ctx.fillStyle = touchControls.left ? '#00ff00' : '#ffffff';
+        // Hat brim
+        ctx.fillRect(-15, -26, 30, 3);
+        ctx.strokeRect(-15, -26, 30, 3);
+
+        // Hat top
+        ctx.fillRect(-10, -40, 20, 14);
+        ctx.strokeRect(-10, -40, 20, 14);
+
+        // Hat band
+        ctx.fillStyle = '#8B0000';
+        ctx.fillRect(-10, -28, 20, 2);
+    } else if (pumpkin.name === 'Pumpkin Librarian') {
+        // Draw horn rim glasses
+        ctx.strokeStyle = '#000000';
+        ctx.fillStyle = '#87CEEB'; // Light blue lens tint
+        ctx.lineWidth = 2;
+
+        // Left lens
         ctx.beginPath();
-        ctx.arc(WIDTH * 0.15, HEIGHT - 60, 40, 0, Math.PI * 2);
+        ctx.arc(-8, -5, 6, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 30px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('◄', WIDTH * 0.15, HEIGHT - 50);
-        
-        // Right button
-        ctx.fillStyle = touchControls.right ? '#00ff00' : '#ffffff';
+        ctx.stroke();
+
+        // Right lens
         ctx.beginPath();
-        ctx.arc(WIDTH * 0.35, HEIGHT - 60, 40, 0, Math.PI * 2);
+        ctx.arc(8, -5, 6, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.fillText('►', WIDTH * 0.35, HEIGHT - 50);
-        
-        // Shoot button
-        ctx.fillStyle = touchControls.shoot ? '#ff0000' : '#ffffff';
+        ctx.stroke();
+
+        // Bridge
         ctx.beginPath();
-        ctx.arc(WIDTH * 0.85, HEIGHT - 60, 50, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 24px Arial';
-        ctx.fillText('FIRE', WIDTH * 0.85, HEIGHT - 50);
-        
-        ctx.globalAlpha = 1.0;
+        ctx.moveTo(-2, -5);
+        ctx.lineTo(2, -5);
+        ctx.stroke();
+
+        // Left temple
+        ctx.beginPath();
+        ctx.moveTo(-14, -5);
+        ctx.lineTo(-18, -5);
+        ctx.stroke();
+
+        // Right temple
+        ctx.beginPath();
+        ctx.moveTo(14, -5);
+        ctx.lineTo(18, -5);
+        ctx.stroke();
     }
 
     ctx.restore();
@@ -818,7 +875,7 @@ function drawBullet(bullet) {
         // Giant knife blade (silver with glow)
         ctx.fillStyle = '#c0c0c0';
         ctx.shadowColor = '#00ffff';
-        ctx.shadowBlur = 20;
+        ctx.shadowBlur = 20 * SCALE;
         ctx.beginPath();
         ctx.moveTo(0, 0);
         ctx.lineTo(-3, 12);
@@ -892,41 +949,6 @@ function drawBullet(bullet) {
         }
     }
 
-
-    // Draw touch control UI for mobile
-    if (isMobile && !paused && !gameOver) {
-        ctx.globalAlpha = 0.3;
-        
-        // Left button
-        ctx.fillStyle = touchControls.left ? '#00ff00' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.15, HEIGHT - 60, 40, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 30px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('◄', WIDTH * 0.15, HEIGHT - 50);
-        
-        // Right button
-        ctx.fillStyle = touchControls.right ? '#00ff00' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.35, HEIGHT - 60, 40, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.fillText('►', WIDTH * 0.35, HEIGHT - 50);
-        
-        // Shoot button
-        ctx.fillStyle = touchControls.shoot ? '#ff0000' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.85, HEIGHT - 60, 50, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 24px Arial';
-        ctx.fillText('FIRE', WIDTH * 0.85, HEIGHT - 50);
-        
-        ctx.globalAlpha = 1.0;
-    }
-
     ctx.restore();
 }
 
@@ -953,40 +975,124 @@ function drawLaser(x, y) {
     ctx.fillRect(x - 3, 0, 6, y);
     ctx.shadowBlur = 0;
 
+    ctx.restore();
+}
 
-    // Draw touch control UI for mobile
-    if (isMobile && !paused && !gameOver) {
-        ctx.globalAlpha = 0.3;
-        
-        // Left button
-        ctx.fillStyle = touchControls.left ? '#00ff00' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.15, HEIGHT - 60, 40, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 30px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('◄', WIDTH * 0.15, HEIGHT - 50);
-        
-        // Right button
-        ctx.fillStyle = touchControls.right ? '#00ff00' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.35, HEIGHT - 60, 40, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.fillText('►', WIDTH * 0.35, HEIGHT - 50);
-        
-        // Shoot button
-        ctx.fillStyle = touchControls.shoot ? '#ff0000' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.85, HEIGHT - 60, 50, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 24px Arial';
-        ctx.fillText('FIRE', WIDTH * 0.85, HEIGHT - 50);
-        
-        ctx.globalAlpha = 1.0;
+// Draw witch on broom
+function drawWitch(witch) {
+    if (!witch.alive) return;
+
+    ctx.save();
+    ctx.translate(witch.x, witch.y);
+
+    // Flip horizontally based on direction
+    if (witch.direction < 0) {
+        ctx.scale(-1, 1);
     }
+
+    // Glowing outline for visibility
+    ctx.shadowColor = '#FFD700';
+    ctx.shadowBlur = 20 * SCALE;
+    ctx.strokeStyle = '#FFD700';
+    ctx.lineWidth = 2 * SCALE;
+
+    // Scale all witch elements
+    const s = SCALE;
+
+    // Broomstick
+    ctx.strokeStyle = '#8B4513';
+    ctx.lineWidth = 4 * s;
+    ctx.beginPath();
+    ctx.moveTo(-25 * s, 10 * s);
+    ctx.lineTo(25 * s, 10 * s);
+    ctx.stroke();
+
+    // Broom bristles
+    ctx.strokeStyle = '#DAA520';
+    ctx.lineWidth = 2 * s;
+    for (let i = -5; i < 10; i += 3) {
+        ctx.beginPath();
+        ctx.moveTo(20 * s, 10 * s);
+        ctx.lineTo((25 + i) * s, 18 * s);
+        ctx.stroke();
+    }
+
+    // Witch body (black dress)
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.moveTo(0, -5 * s);
+    ctx.lineTo(-12 * s, 10 * s);
+    ctx.lineTo(12 * s, 10 * s);
+    ctx.closePath();
+    ctx.fill();
+
+    // Witch head (green)
+    ctx.fillStyle = '#90EE90';
+    ctx.beginPath();
+    ctx.arc(0, -12 * s, 8 * s, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Witch hat
+    ctx.fillStyle = '#4B0082';
+    ctx.beginPath();
+    ctx.moveTo(-10 * s, -12 * s);
+    ctx.lineTo(0, -28 * s);
+    ctx.lineTo(10 * s, -12 * s);
+    ctx.closePath();
+    ctx.fill();
+
+    // Hat brim
+    ctx.fillRect(-12 * s, -12 * s, 24 * s, 3 * s);
+
+    // Witch face details (evil grin)
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.arc(-3 * s, -13 * s, 1.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(3 * s, -13 * s, 1.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Evil smile
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 1.5 * s;
+    ctx.beginPath();
+    ctx.arc(0, -10 * s, 4 * s, 0, Math.PI);
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+// Draw extra life token
+function drawExtraLifeToken(token) {
+    ctx.save();
+    ctx.translate(token.x, token.y);
+
+    const s = SCALE;
+
+    // Heart shape for extra life
+    ctx.fillStyle = '#FF1493';
+    ctx.shadowColor = '#FF1493';
+    ctx.shadowBlur = 15 * s;
+
+    ctx.beginPath();
+    ctx.moveTo(0, 5 * s);
+    ctx.bezierCurveTo(-8 * s, -2 * s, -15 * s, -8 * s, -15 * s, -13 * s);
+    ctx.bezierCurveTo(-15 * s, -18 * s, -10 * s, -20 * s, -5 * s, -18 * s);
+    ctx.bezierCurveTo(0, -20 * s, 0, -20 * s, 0, -20 * s);
+    ctx.bezierCurveTo(0, -20 * s, 0, -20 * s, 5 * s, -18 * s);
+    ctx.bezierCurveTo(10 * s, -20 * s, 15 * s, -18 * s, 15 * s, -13 * s);
+    ctx.bezierCurveTo(15 * s, -8 * s, 8 * s, -2 * s, 0, 5 * s);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+
+    // "+1" text
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = scaledFont(12, 'bold');
+    ctx.textAlign = 'center';
+    ctx.fillText('+1', 0, -10 * s);
 
     ctx.restore();
 }
@@ -1015,41 +1121,6 @@ function drawGrenade(grenade) {
     ctx.ellipse(0, 0, GRENADE_SIZE / 2, GRENADE_SIZE / 2 - 1, 0, 0, Math.PI * 2);
     ctx.stroke();
     ctx.shadowBlur = 0;
-
-
-    // Draw touch control UI for mobile
-    if (isMobile && !paused && !gameOver) {
-        ctx.globalAlpha = 0.3;
-        
-        // Left button
-        ctx.fillStyle = touchControls.left ? '#00ff00' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.15, HEIGHT - 60, 40, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 30px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('◄', WIDTH * 0.15, HEIGHT - 50);
-        
-        // Right button
-        ctx.fillStyle = touchControls.right ? '#00ff00' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.35, HEIGHT - 60, 40, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.fillText('►', WIDTH * 0.35, HEIGHT - 50);
-        
-        // Shoot button
-        ctx.fillStyle = touchControls.shoot ? '#ff0000' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.85, HEIGHT - 60, 50, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 24px Arial';
-        ctx.fillText('FIRE', WIDTH * 0.85, HEIGHT - 50);
-        
-        ctx.globalAlpha = 1.0;
-    }
 
     ctx.restore();
 }
@@ -1123,6 +1194,26 @@ function drawPowerUp(powerUp) {
         ctx.lineTo(8, -4);
         ctx.closePath();
         ctx.stroke();
+
+    } else if (powerUp.type === 'fullshield') {
+        // Full Shield icon - larger with plus sign
+        ctx.strokeStyle = '#00ffff';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(0, -12);
+        ctx.lineTo(-10, -5);
+        ctx.lineTo(-10, 5);
+        ctx.lineTo(0, 12);
+        ctx.lineTo(10, 5);
+        ctx.lineTo(10, -5);
+        ctx.closePath();
+        ctx.stroke();
+
+        // Plus sign
+        ctx.fillStyle = '#00ffff';
+        ctx.fillRect(-6, -1, 12, 2);
+        ctx.fillRect(-1, -6, 2, 12);
+        ctx.lineWidth = 2;
         ctx.fillStyle = '#006600';
         ctx.fill();
 
@@ -1147,7 +1238,7 @@ function drawPowerUp(powerUp) {
 
         // "AUTO" text
         ctx.fillStyle = '#003300';
-        ctx.font = 'bold 6px Arial';
+        ctx.font = scaledFont(6, 'bold');
         ctx.textAlign = 'center';
         ctx.fillText('AUTO', 0, 6);
 
@@ -1175,41 +1266,6 @@ function drawPowerUp(powerUp) {
         // Handle
         ctx.fillStyle = '#ff8800';
         ctx.fillRect(-3, 8, 6, 4);
-    }
-
-
-    // Draw touch control UI for mobile
-    if (isMobile && !paused && !gameOver) {
-        ctx.globalAlpha = 0.3;
-        
-        // Left button
-        ctx.fillStyle = touchControls.left ? '#00ff00' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.15, HEIGHT - 60, 40, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 30px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('◄', WIDTH * 0.15, HEIGHT - 50);
-        
-        // Right button
-        ctx.fillStyle = touchControls.right ? '#00ff00' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.35, HEIGHT - 60, 40, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.fillText('►', WIDTH * 0.35, HEIGHT - 50);
-        
-        // Shoot button
-        ctx.fillStyle = touchControls.shoot ? '#ff0000' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.85, HEIGHT - 60, 50, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 24px Arial';
-        ctx.fillText('FIRE', WIDTH * 0.85, HEIGHT - 50);
-        
-        ctx.globalAlpha = 1.0;
     }
 
     ctx.restore();
@@ -1253,7 +1309,7 @@ function drawBossProjectile(projectile) {
             // Planet/sphere
             ctx.fillStyle = '#4466ff';
             ctx.shadowColor = '#6688ff';
-            ctx.shadowBlur = 15;
+            ctx.shadowBlur = 15 * SCALE;
             ctx.beginPath();
             ctx.arc(0, 0, size, 0, Math.PI * 2);
             ctx.fill();
@@ -1270,7 +1326,7 @@ function drawBossProjectile(projectile) {
             // Fireball
             ctx.fillStyle = '#ff4400';
             ctx.shadowColor = '#ff6600';
-            ctx.shadowBlur = 20;
+            ctx.shadowBlur = 20 * SCALE;
             ctx.beginPath();
             ctx.arc(0, 0, size, 0, Math.PI * 2);
             ctx.fill();
@@ -1286,7 +1342,7 @@ function drawBossProjectile(projectile) {
             ctx.strokeStyle = '#8800ff';
             ctx.lineWidth = 4;
             ctx.shadowColor = '#8800ff';
-            ctx.shadowBlur = 15;
+            ctx.shadowBlur = 15 * SCALE;
             ctx.beginPath();
             ctx.ellipse(0, 0, size * 1.5, size * 0.5, 0, 0, Math.PI * 2);
             ctx.stroke();
@@ -1339,7 +1395,7 @@ function drawBossProjectile(projectile) {
             ctx.fillRect(-15, 5, 30, 10);
             ctx.shadowBlur = 0;
             ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 12px Arial';
+            ctx.font = scaledFont(12, 'bold');
             ctx.textAlign = 'center';
             ctx.fillText('POW', 0, 3);
             break;
@@ -1406,7 +1462,7 @@ function drawBossProjectile(projectile) {
             // Lightning bolt
             ctx.fillStyle = '#ffff00';
             ctx.shadowColor = '#ffff00';
-            ctx.shadowBlur = 20;
+            ctx.shadowBlur = 20 * SCALE;
             ctx.beginPath();
             ctx.moveTo(0, -20);
             ctx.lineTo(5, -5);
@@ -1521,7 +1577,7 @@ function drawBossProjectile(projectile) {
             // Large explosive pumpkin
             ctx.fillStyle = '#ff3300';
             ctx.shadowColor = '#ff6600';
-            ctx.shadowBlur = 15;
+            ctx.shadowBlur = 15 * SCALE;
             ctx.beginPath();
             ctx.ellipse(0, 0, size, size - 2, 0, 0, Math.PI * 2);
             ctx.fill();
@@ -1552,41 +1608,6 @@ function drawBossProjectile(projectile) {
             ctx.stroke();
             ctx.shadowBlur = 0;
             break;
-    }
-
-
-    // Draw touch control UI for mobile
-    if (isMobile && !paused && !gameOver) {
-        ctx.globalAlpha = 0.3;
-        
-        // Left button
-        ctx.fillStyle = touchControls.left ? '#00ff00' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.15, HEIGHT - 60, 40, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 30px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('◄', WIDTH * 0.15, HEIGHT - 50);
-        
-        // Right button
-        ctx.fillStyle = touchControls.right ? '#00ff00' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.35, HEIGHT - 60, 40, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.fillText('►', WIDTH * 0.35, HEIGHT - 50);
-        
-        // Shoot button
-        ctx.fillStyle = touchControls.shoot ? '#ff0000' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.85, HEIGHT - 60, 50, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 24px Arial';
-        ctx.fillText('FIRE', WIDTH * 0.85, HEIGHT - 50);
-        
-        ctx.globalAlpha = 1.0;
     }
 
     ctx.restore();
@@ -1654,7 +1675,7 @@ function drawShipDestruction() {
             ctx.globalAlpha = alpha;
             ctx.fillStyle = i % 2 === 0 ? '#ff6600' : '#ffaa00';
             ctx.shadowColor = '#ff6600';
-            ctx.shadowBlur = 20;
+            ctx.shadowBlur = 20 * SCALE;
             ctx.beginPath();
             ctx.arc(0, 0, size, 0, Math.PI * 2);
             ctx.fill();
@@ -1681,14 +1702,14 @@ function drawShipDestruction() {
     if (shipDestroyFrame > 25) {
         ctx.save();
         ctx.fillStyle = '#ff0000';
-        ctx.font = 'bold 60px Arial';
+        ctx.font = scaledFont(60, 'bold');
         ctx.textAlign = 'center';
         ctx.shadowColor = '#ff0000';
-        ctx.shadowBlur = 20;
+        ctx.shadowBlur = 20 * SCALE;
         ctx.fillText('YOU DIED!', WIDTH / 2, HEIGHT / 2 + 100);
 
         ctx.fillStyle = '#ffaa00';
-        ctx.font = 'bold 30px Arial';
+        ctx.font = scaledFont(30, 'bold');
         ctx.shadowColor = '#ffaa00';
         ctx.shadowBlur = 10;
         const livesText = lives === 1 ? '1 life left' : lives + ' lives left';
@@ -1729,6 +1750,69 @@ function playSadSound() {
 
         oscillator.start(now);
         oscillator.stop(now + 3.0);
+    } catch (e) {
+        console.log('Audio error:', e);
+    }
+}
+
+// Happy sound - plays ascending cheerful notes
+function playHappySound() {
+    try {
+        const ctx = getAudioContext();
+        const oscillator = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        oscillator.type = 'sine';
+
+        // Cheerful ascending notes (C major chord arpeggio)
+        const now = ctx.currentTime;
+        oscillator.frequency.setValueAtTime(523, now);      // C5
+        oscillator.frequency.setValueAtTime(659, now + 0.15); // E5
+        oscillator.frequency.setValueAtTime(784, now + 0.3); // G5
+        oscillator.frequency.setValueAtTime(1047, now + 0.45); // C6 (octave higher)
+
+        gainNode.gain.setValueAtTime(0.3 * volume, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.7);
+
+        oscillator.start(now);
+        oscillator.stop(now + 0.7);
+    } catch (e) {
+        console.log('Audio error:', e);
+    }
+}
+
+// Clone hit sound - plays N descending tones based on hits taken (1-3)
+function playCloneHitSound(hitsTaken) {
+    try {
+        const ctx = getAudioContext();
+        const oscillator = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        oscillator.type = 'sine';
+
+        const now = ctx.currentTime;
+        const toneDuration = 0.15; // Short, quick tones
+
+        // Descending frequencies (E, D, C)
+        const frequencies = [659, 587, 523]; // E5, D5, C5
+
+        // Set frequencies for each tone based on hits taken
+        for (let i = 0; i < hitsTaken; i++) {
+            oscillator.frequency.setValueAtTime(frequencies[i], now + (i * toneDuration));
+        }
+
+        // Volume envelope
+        gainNode.gain.setValueAtTime(0.2 * volume, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + (hitsTaken * toneDuration) + 0.1);
+
+        oscillator.start(now);
+        oscillator.stop(now + (hitsTaken * toneDuration) + 0.1);
     } catch (e) {
         console.log('Audio error:', e);
     }
@@ -2343,8 +2427,20 @@ function update() {
         if (levelCompleteTimer <= 0) {
             levelComplete = false;
             level++;
-            pumpkinSpeed += 0.25;
-            initPumpkins();
+            pumpkinSpeed += isMobile ? 0.15 : 0.25; // Slower progression for mobile
+
+            // Initialize witch interval on level 4
+            if (level === 4 && witchLevelInterval === 0) {
+                witchLevelInterval = Math.random() < 0.5 ? 3 : 6;
+            }
+
+            // Check if witch should appear
+            if (level >= 4 && witchLevelInterval > 0 && level % witchLevelInterval === 0) {
+                initWitch();
+            } else {
+                initPumpkins();
+            }
+
             updateUI();
         }
         return;
@@ -2352,26 +2448,46 @@ function update() {
 
     // Move player
     // Handle movement (keyboard or touch)
-    const moveLeft = (keys[keyBindings.left] || touchControls.left) && player.x > 30;
-    const moveRight = (keys[keyBindings.right] || touchControls.right) && player.x < WIDTH - 30;
-    
-    if (moveLeft) {
-        player.x -= player.speed;
-    }
-    if (moveRight) {
-        player.x += player.speed;
+    if (isMobile && touchControls.targetX !== null) {
+        // Mobile: smooth movement to touch position
+        const dx = touchControls.targetX - player.x;
+        const moveSpeed = player.speed * 2; // Faster movement on mobile for better responsiveness
+        if (Math.abs(dx) > moveSpeed) {
+            player.x += Math.sign(dx) * moveSpeed;
+        } else {
+            player.x = touchControls.targetX;
+        }
+        // Keep player in bounds
+        player.x = Math.max(30 * SCALE, Math.min(WIDTH - (30 * SCALE), player.x));
+    } else {
+        // Desktop: keyboard controls
+        const moveLeft = (keys[keyBindings.left] || touchControls.left) && player.x > (30 * SCALE);
+        const moveRight = (keys[keyBindings.right] || touchControls.right) && player.x < WIDTH - (30 * SCALE);
+
+        if (moveLeft) {
+            player.x -= player.speed;
+        }
+        if (moveRight) {
+            player.x += player.speed;
+        }
     }
 
 
-    // Auto-shoot on touch
+    // Auto-shoot on touch for mobile
     if (isMobile && touchControls.shoot && !paused && !gameOver && !shipDestroying && !levelComplete) {
+        // Decrement cooldown
+        if (autoShootCooldown > 0) {
+            autoShootCooldown--;
+        }
+
+        // Shoot when cooldown reaches 0
         if (autoShootCooldown <= 0 && (!activePowerUps.laser.active || activePowerUps.pierceknife.active) && player.bullets.length < 5) {
             player.bullets.push({
                 x: player.x,
                 y: player.y - 20,
                 pierce: activePowerUps.pierceknife.active
             });
-            
+
             for (let clone of cloneShips) {
                 player.bullets.push({
                     x: clone.x,
@@ -2379,15 +2495,18 @@ function update() {
                     pierce: activePowerUps.pierceknife.active
                 });
             }
-            
+
             if (activePowerUps.pierceknife.active) {
                 // playPierceSound();
             } else {
                 playShootSound();
             }
-            
-            autoShootCooldown = 15; // Slower auto-shoot for mobile
+
+            autoShootCooldown = 15; // Slower auto-shoot for mobile (about 4 shots/sec at 60fps)
         }
+    } else if (isMobile && !touchControls.shoot) {
+        // Reset cooldown when not shooting so first shot is immediate
+        autoShootCooldown = 0;
     }
 
     // Update bullets
@@ -2406,6 +2525,29 @@ function update() {
                 score += 25;
                 updateUI();
                 return false; // Remove bullet
+            }
+        }
+
+        // Check collision with witch
+        if (witch && witch.alive && !witch.hit) {
+            const halfSize = witch.width / 2;
+            if (bullet.x > witch.x - halfSize &&
+                bullet.x < witch.x + halfSize &&
+                bullet.y > witch.y - halfSize &&
+                bullet.y < witch.y + halfSize) {
+
+                witch.hit = true;
+                score += 500;
+                playHitSound();
+                updateUI();
+
+                // Witch drops extra life token
+                extraLifeToken = {
+                    x: witch.x,
+                    y: witch.y
+                };
+
+                return true; // Remove bullet
             }
         }
 
@@ -2430,6 +2572,13 @@ function update() {
                     playExplosionSound(bossScale);
                     score += 1000;
                     updateUI();
+
+                    // Big boss always drops full shield refill
+                    powerUps.push({
+                        x: bigBoss.x,
+                        y: bigBoss.y,
+                        type: 'fullshield'
+                    });
                 }
 
                 return !bullet.pierce; // Keep pierce bullets, remove normal bullets
@@ -2471,10 +2620,13 @@ function update() {
                         // Drop power-up chance (15% for regular, 50% for boss)
                         const dropChance = pumpkin.isBoss ? 0.5 : 0.15;
                         if (Math.random() < dropChance) {
-                            // Filter out pierce if it's active or on cooldown
+                            // Filter out pierce if active/on cooldown, and clone if at max (5)
                             let availablePowerUps = POWERUP_TYPES.filter(type => {
                                 if (type === 'pierceknife') {
                                     return !activePowerUps.pierceknife.active && pierceCooldownTimer <= 0;
+                                }
+                                if (type === 'clone') {
+                                    return cloneShips.length < 5;
                                 }
                                 return true;
                             });
@@ -2561,6 +2713,8 @@ function update() {
             if (grenade.y >= clone.y - 20 && grenade.y <= clone.y + 20 &&
                 grenade.x >= clone.x - 25 && grenade.x <= clone.x + 25) {
                 clone.health--;
+                const hitsTaken = 4 - clone.health; // Calculate hits (1, 2, or 3)
+                playCloneHitSound(hitsTaken);
                 if (clone.health <= 0) {
                     cloneShips.splice(i, 1); // Remove this clone
                 }
@@ -2640,6 +2794,8 @@ function update() {
             if (projectile.y >= clone.y - 30 && projectile.y <= clone.y + 30 &&
                 projectile.x >= clone.x - 30 && projectile.x <= clone.x + 30) {
                 clone.health--;
+                const hitsTaken = 4 - clone.health; // Calculate hits (1, 2, or 3)
+                playCloneHitSound(hitsTaken);
                 if (clone.health <= 0) {
                     cloneShips.splice(i, 1); // Remove this clone
                 }
@@ -2701,6 +2857,10 @@ function update() {
             if (powerUp.type === 'shield') {
                 // Instant effect - restore shield
                 shield = Math.min(100, shield + 50);
+                updateUI();
+            } else if (powerUp.type === 'fullshield') {
+                // Instant effect - restore shield to full
+                shield = 100;
                 updateUI();
             } else if (powerUp.type === 'clone') {
                 // Add a new clone ship with 3 health
@@ -2824,6 +2984,13 @@ function update() {
                     playExplosionSound(bossScale);
                     score += 1000;
                     updateUI();
+
+                    // Big boss always drops full shield refill
+                    powerUps.push({
+                        x: bigBoss.x,
+                        y: bigBoss.y,
+                        type: 'fullshield'
+                    });
                 }
             }
         }
@@ -2855,10 +3022,13 @@ function update() {
                         // Drop power-up chance (15% for regular, 50% for boss)
                         const dropChance = pumpkin.isBoss ? 0.5 : 0.15;
                         if (Math.random() < dropChance) {
-                            // Filter out pierce if it's active or on cooldown
+                            // Filter out pierce if active/on cooldown, and clone if at max (5)
                             let availablePowerUps = POWERUP_TYPES.filter(type => {
                                 if (type === 'pierceknife') {
                                     return !activePowerUps.pierceknife.active && pierceCooldownTimer <= 0;
+                                }
+                                if (type === 'clone') {
+                                    return cloneShips.length < 5;
                                 }
                                 return true;
                             });
@@ -2937,6 +3107,62 @@ function update() {
         stopSizzle();
     }
 
+    // Update witch
+    if (witch && witch.alive) {
+        if (witch.hit) {
+            // Witch flies away after being hit, then start normal level
+            witch.y -= 3 * SCALE;
+            if (witch.y < -100 * SCALE) {
+                witch.alive = false;
+                witch = null;
+                // Start normal level after witch flies away
+                initPumpkins();
+            }
+        } else {
+            // Witch flies back and forth
+            witch.x += witch.direction * witch.speed;
+
+            // Reverse direction at edges and increment pass count
+            if (witch.x > WIDTH + 100 * SCALE) {
+                witch.direction = -1;
+                witch.passes++;
+            } else if (witch.x < -100 * SCALE && witch.passes > 0) {
+                witch.direction = 1;
+                witch.passes++;
+            }
+
+            // After 5 passes, witch leaves and normal level starts
+            if (witch.passes >= witch.maxPasses) {
+                witch.alive = false;
+                witch = null;
+                // Start normal level after witch escapes
+                initPumpkins();
+            }
+        }
+    }
+
+    // Update extra life token
+    if (extraLifeToken) {
+        extraLifeToken.y += 2 * SCALE;
+
+        // Check collision with player
+        const dx = player.x - extraLifeToken.x;
+        const dy = player.y - extraLifeToken.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < 30 * SCALE) {
+            lives++;
+            playHappySound();
+            extraLifeToken = null;
+            updateUI();
+        }
+
+        // Remove if off screen
+        if (extraLifeToken && extraLifeToken.y > HEIGHT + 50 * SCALE) {
+            extraLifeToken = null;
+        }
+    }
+
     // Update big boss
     if (bigBossMode && bigBoss) {
         if (bigBoss.exploding) {
@@ -2953,6 +3179,10 @@ function update() {
         } else if (bigBoss.alive) {
             // Big boss moves slowly side to side
             bigBoss.x += Math.sin(Date.now() / 1000) * 2;
+
+            // Clamp boss position - can only go halfway off screen
+            const halfBossWidth = bigBoss.width / 2;
+            bigBoss.x = Math.max(halfBossWidth, Math.min(WIDTH - halfBossWidth, bigBoss.x));
 
             // Big boss shooting (gets faster at higher levels)
             bigBoss.shootCooldown--;
@@ -2971,7 +3201,7 @@ function update() {
             }
 
             // Check if big boss reached player
-            if (bigBoss.y >= HEIGHT - 200) {
+            if (bigBoss.y >= HEIGHT - (200 * SCALE)) {
                 shield = 0;
                 lives--;
                 cloneShips = []; // Remove all clones when a life is lost
@@ -3006,7 +3236,9 @@ function update() {
 
                 pumpkin.x += pumpkinDirection * pumpkinSpeed;
 
-                if (pumpkin.x <= 50 || pumpkin.x >= WIDTH - 50) {
+                // Edge detection with proper margins
+                const edgeMargin = PUMPKIN_SIZE / 2 + (10 * SCALE); // Half pumpkin size plus scaled buffer
+                if (pumpkin.x <= edgeMargin || pumpkin.x >= WIDTH - edgeMargin) {
                     hitEdge = true;
                 }
 
@@ -3023,7 +3255,7 @@ function update() {
                 }
 
                 // Check if pumpkin reached bottom
-                if (pumpkin.y >= HEIGHT - 100) {
+                if (pumpkin.y >= HEIGHT - (100 * SCALE)) {
                     // Mark all pumpkins as exploding to clear the level
                     for (let p of pumpkins) {
                         if (p.alive) {
@@ -3084,13 +3316,23 @@ function draw() {
     ctx.fillStyle = '#0a0015';
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-    // Draw stars
-    ctx.fillStyle = '#ffffff';
-    for (let i = 0; i < 50; i++) {
-        const x = (i * 37) % WIDTH;
-        const y = (i * 71) % HEIGHT;
-        const size = (i % 3) + 1;
-        ctx.fillRect(x, y, size, size);
+    // Update and draw parallax starfield
+    for (let layer of starLayers) {
+        ctx.fillStyle = `rgba(255, 255, 255, ${layer.opacity})`;
+
+        for (let star of layer.stars) {
+            // Update star position (move down)
+            star.y += layer.speed;
+
+            // Wrap around when star goes off bottom
+            if (star.y > HEIGHT) {
+                star.y = 0;
+                star.x = Math.random() * WIDTH;
+            }
+
+            // Draw star
+            ctx.fillRect(star.x, star.y, layer.size, layer.size);
+        }
     }
 
     // Draw game objects
@@ -3104,6 +3346,16 @@ function draw() {
 
     for (let clone of cloneShips) {
         drawCloneShip(clone);
+    }
+
+    // Draw witch if active
+    if (witch && witch.alive) {
+        drawWitch(witch);
+    }
+
+    // Draw extra life token if active
+    if (extraLifeToken) {
+        drawExtraLifeToken(extraLifeToken);
     }
 
     // Draw big boss or regular pumpkins
@@ -3130,13 +3382,13 @@ function draw() {
             ctx.strokeRect(barX, barY, barWidth, barHeight);
 
             ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 16px Arial';
+            ctx.font = scaledFont(16, 'bold');
             ctx.textAlign = 'center';
             ctx.shadowColor = bigBoss.color;
             ctx.shadowBlur = 10;
             ctx.fillText(bigBoss.name.toUpperCase(), WIDTH / 2, barY - 10);
             ctx.shadowBlur = 0;
-            ctx.font = '14px Arial';
+            ctx.font = scaledFont(14);
             ctx.fillText(`${Math.floor(healthRemaining)} / ${bigBoss.maxDamage}`, WIDTH / 2, barY + 15);
         }
     } else {
@@ -3253,7 +3505,7 @@ function draw() {
         ctx.strokeRect(barX, barY, barWidth, barHeight);
 
         ctx.fillStyle = '#ffffff';
-        ctx.font = '12px Arial';
+        ctx.font = scaledFont(12);
         ctx.textAlign = 'center';
         ctx.fillText('SHIELD: ' + Math.floor(shield), WIDTH / 2, barY + 12);
     }
@@ -3287,12 +3539,12 @@ function draw() {
             const timeLeft = Math.ceil(activePowerUps.laser.timer / 60);
 
             ctx.fillStyle = '#00ffff';
-            ctx.font = 'bold 14px Arial';
+            ctx.font = scaledFont(14, 'bold');
             ctx.textAlign = 'left';
             ctx.fillText('⚡ LASER', panelX + 10, itemY);
 
             ctx.fillStyle = '#ffffff';
-            ctx.font = '12px Arial';
+            ctx.font = scaledFont(12);
             ctx.textAlign = 'right';
             ctx.fillText(timeLeft + 's', panelX + 150, itemY);
 
@@ -3313,12 +3565,12 @@ function draw() {
         // Clone indicator
         if (cloneShips.length > 0) {
             ctx.fillStyle = '#00ff88';
-            ctx.font = 'bold 14px Arial';
+            ctx.font = scaledFont(14, 'bold');
             ctx.textAlign = 'left';
             ctx.fillText('🦇 CLONES', panelX + 10, itemY);
 
             ctx.fillStyle = '#ffffff';
-            ctx.font = '12px Arial';
+            ctx.font = scaledFont(12);
             ctx.textAlign = 'right';
             ctx.fillText('x' + cloneShips.length, panelX + 150, itemY);
 
@@ -3330,12 +3582,12 @@ function draw() {
             const timeLeft = Math.ceil(activePowerUps.autoshoot.timer / 60);
 
             ctx.fillStyle = '#ffaa00';
-            ctx.font = 'bold 14px Arial';
+            ctx.font = scaledFont(14, 'bold');
             ctx.textAlign = 'left';
             ctx.fillText('🔫 AUTO', panelX + 10, itemY);
 
             ctx.fillStyle = '#ffffff';
-            ctx.font = '12px Arial';
+            ctx.font = scaledFont(12);
             ctx.textAlign = 'right';
             ctx.fillText(timeLeft + 's', panelX + 150, itemY);
 
@@ -3358,12 +3610,12 @@ function draw() {
             const timeLeft = Math.ceil(activePowerUps.pierceknife.timer / 60);
 
             ctx.fillStyle = '#00ffff';
-            ctx.font = 'bold 14px Arial';
+            ctx.font = scaledFont(14, 'bold');
             ctx.textAlign = 'left';
             ctx.fillText('🔪 PIERCE', panelX + 10, itemY);
 
             ctx.fillStyle = '#ffffff';
-            ctx.font = '12px Arial';
+            ctx.font = scaledFont(12);
             ctx.textAlign = 'right';
             ctx.fillText(timeLeft + 's', panelX + 150, itemY);
 
@@ -3386,14 +3638,14 @@ function draw() {
         ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
         ctx.fillStyle = '#00ff00';
-        ctx.font = 'bold 50px Arial';
+        ctx.font = scaledFont(50, 'bold');
         ctx.textAlign = 'center';
         ctx.shadowColor = '#00ff00';
-        ctx.shadowBlur = 20;
+        ctx.shadowBlur = 20 * SCALE;
 
         // Split message into lines and draw each one
         const lines = levelCompleteMessage.split('\n');
-        const lineHeight = 60;
+        const lineHeight = 60 * SCALE;
         const startY = HEIGHT / 2 - ((lines.length - 1) * lineHeight / 2);
 
         for (let i = 0; i < lines.length; i++) {
@@ -3409,15 +3661,15 @@ function draw() {
         ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
         ctx.fillStyle = '#00ff00';
-        ctx.font = 'bold 40px Arial';
+        ctx.font = scaledFont(40, 'bold');
         ctx.textAlign = 'center';
         ctx.shadowColor = '#00ff00';
-        ctx.shadowBlur = 15;
+        ctx.shadowBlur = 15 * SCALE;
         ctx.fillText('TOP 100 HIGH SCORES', WIDTH / 2, 50);
         ctx.shadowBlur = 0;
 
         // Display high scores in two columns
-        ctx.font = '16px Arial';
+        ctx.font = scaledFont(16);
         const startY = 90;
         const columnWidth = WIDTH / 2;
 
@@ -3446,9 +3698,13 @@ function draw() {
         }
 
         ctx.fillStyle = '#ffaa00';
-        ctx.font = '20px Arial';
+        ctx.font = scaledFont(20);
         ctx.textAlign = 'center';
-        ctx.fillText('Press ESC to return', WIDTH / 2, HEIGHT - 20);
+        if (isMobile) {
+            ctx.fillText('Tap to play again', WIDTH / 2, HEIGHT - 20);
+        } else {
+            ctx.fillText('Press ESC to return', WIDTH / 2, HEIGHT - 20);
+        }
     }
 
     // Name entry screen
@@ -3457,33 +3713,33 @@ function draw() {
         ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
         ctx.fillStyle = '#00ff00';
-        ctx.font = 'bold 50px Arial';
+        ctx.font = scaledFont(50, 'bold');
         ctx.textAlign = 'center';
         ctx.shadowColor = '#00ff00';
-        ctx.shadowBlur = 20;
+        ctx.shadowBlur = 20 * SCALE;
         ctx.fillText('NEW HIGH SCORE!', WIDTH / 2, HEIGHT / 2 - 100);
         ctx.shadowBlur = 0;
 
         ctx.fillStyle = '#ffffff';
-        ctx.font = '35px Arial';
+        ctx.font = scaledFont(35);
         ctx.fillText('Score: ' + score, WIDTH / 2, HEIGHT / 2 - 40);
 
         ctx.fillStyle = '#ffaa00';
-        ctx.font = '25px Arial';
+        ctx.font = scaledFont(25);
         ctx.fillText('Enter your name:', WIDTH / 2, HEIGHT / 2 + 10);
 
         // Draw input box
         ctx.strokeStyle = '#00ff00';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(WIDTH / 2 - 150, HEIGHT / 2 + 30, 300, 50);
+        ctx.lineWidth = 3 * SCALE;
+        ctx.strokeRect(WIDTH / 2 - (150 * SCALE), HEIGHT / 2 + (30 * SCALE), 300 * SCALE, 50 * SCALE);
 
         // Draw player name
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 30px Arial';
+        ctx.font = scaledFont(30, 'bold');
         ctx.fillText(playerName + '_', WIDTH / 2, HEIGHT / 2 + 65);
 
         ctx.fillStyle = '#ffaa00';
-        ctx.font = '18px Arial';
+        ctx.font = scaledFont(18);
         ctx.fillText('Press ENTER when done (max 15 characters)', WIDTH / 2, HEIGHT / 2 + 120);
     }
 
@@ -3507,22 +3763,13 @@ function draw() {
             ctx.fillStyle = 'rgba(139, 0, 255, 0.3)';
             ctx.fillRect(0, HEIGHT - 100, WIDTH, 40);
             ctx.fillStyle = '#8b00ff';
-            ctx.font = 'bold 24px Arial';
+            ctx.font = scaledFont(24, 'bold');
             ctx.textAlign = 'center';
             ctx.shadowColor = '#8b00ff';
-            ctx.shadowBlur = 15;
+            ctx.shadowBlur = 15 * SCALE;
             ctx.fillText('⚠️ NEXT: ' + nextBossName.toUpperCase(), WIDTH / 2, HEIGHT - 70);
             ctx.shadowBlur = 0;
         }
-    }
-
-    // Pierce cooldown display
-    if (pierceCooldownTimer > 0 && !activePowerUps.pierceknife.active && !paused && !gameOver) {
-        const cooldownSeconds = Math.ceil(pierceCooldownTimer / 60);
-        ctx.fillStyle = '#ff6600';
-        ctx.font = 'bold 16px Arial';
-        ctx.textAlign = 'right';
-        ctx.fillText('🔪 Cooldown: ' + cooldownSeconds + 's', WIDTH - 20, HEIGHT - 60);
     }
 
     // Low shield warning
@@ -3537,7 +3784,7 @@ function draw() {
     // Draw combo counter
     if (combo > 1 && !paused && !gameOver) {
         ctx.fillStyle = '#ffff00';
-        ctx.font = 'bold 30px Arial';
+        ctx.font = scaledFont(30, 'bold');
         ctx.textAlign = 'center';
         ctx.shadowColor = '#ffff00';
         ctx.shadowBlur = 10;
@@ -3551,41 +3798,41 @@ function draw() {
         ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
         ctx.fillStyle = '#00ff00';
-        ctx.font = 'bold 40px Arial';
+        ctx.font = scaledFont(40, 'bold');
         ctx.textAlign = 'center';
         ctx.shadowColor = '#00ff00';
-        ctx.shadowBlur = 15;
+        ctx.shadowBlur = 15 * SCALE;
         ctx.fillText('SETTINGS', WIDTH / 2, 80);
         ctx.shadowBlur = 0;
 
-        ctx.font = '24px Arial';
+        ctx.font = scaledFont(24);
         ctx.fillStyle = '#ffffff';
         let y = 150;
 
         ctx.fillText('Difficulty: ' + difficulty.toUpperCase(), WIDTH / 2, y);
         ctx.fillStyle = '#ffaa00';
-        ctx.font = '18px Arial';
+        ctx.font = scaledFont(18);
         ctx.fillText('(Press D to change)', WIDTH / 2, y + 25);
         y += 80;
 
         ctx.fillStyle = '#ffffff';
-        ctx.font = '24px Arial';
+        ctx.font = scaledFont(24);
         ctx.fillText('Volume: ' + Math.round(volume * 100) + '%', WIDTH / 2, y);
         ctx.fillStyle = '#ffaa00';
-        ctx.font = '18px Arial';
+        ctx.font = scaledFont(18);
         ctx.fillText('(Press +/- to adjust)', WIDTH / 2, y + 25);
         y += 80;
 
         ctx.fillStyle = '#ffffff';
-        ctx.font = '24px Arial';
+        ctx.font = scaledFont(24);
         ctx.fillText('Colorblind Mode: ' + (colorblindMode ? 'ON' : 'OFF'), WIDTH / 2, y);
         ctx.fillStyle = '#ffaa00';
-        ctx.font = '18px Arial';
+        ctx.font = scaledFont(18);
         ctx.fillText('(Press C to toggle)', WIDTH / 2, y + 25);
         y += 100;
 
         ctx.fillStyle = '#ffaa00';
-        ctx.font = '20px Arial';
+        ctx.font = scaledFont(20);
         ctx.fillText('Press S to close settings', WIDTH / 2, y);
     }
 
@@ -3595,14 +3842,14 @@ function draw() {
         ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
         ctx.fillStyle = '#00ff00';
-        ctx.font = 'bold 60px Arial';
+        ctx.font = scaledFont(60, 'bold');
         ctx.textAlign = 'center';
         ctx.shadowColor = '#00ff00';
-        ctx.shadowBlur = 20;
+        ctx.shadowBlur = 20 * SCALE;
         ctx.fillText('PAUSED', WIDTH / 2, HEIGHT / 2 - 30);
         ctx.shadowBlur = 0;
 
-        ctx.font = '25px Arial';
+        ctx.font = scaledFont(25);
         ctx.fillStyle = '#ffffff';
         ctx.fillText('Press P to resume', WIDTH / 2, HEIGHT / 2 + 30);
         ctx.fillText('Press S for Settings', WIDTH / 2, HEIGHT / 2 + 70);
@@ -3614,50 +3861,39 @@ function draw() {
         ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
         ctx.fillStyle = '#ff6600';
-        ctx.font = 'bold 60px Arial';
+        ctx.font = scaledFont(60, 'bold');
         ctx.textAlign = 'center';
         ctx.fillText('GAME OVER', WIDTH / 2, HEIGHT / 2 - 30);
 
-        ctx.font = '30px Arial';
+        ctx.font = scaledFont(30);
         ctx.fillText('Final Score: ' + score, WIDTH / 2, HEIGHT / 2 + 30);
 
-        ctx.font = '20px Arial';
-        ctx.fillText('Press ENTER to restart', WIDTH / 2, HEIGHT / 2 + 80);
-        ctx.fillText('Press H to view High Scores', WIDTH / 2, HEIGHT / 2 + 110);
+        if (isMobile) {
+            ctx.font = scaledFont(25);
+            ctx.fillStyle = '#ffaa00';
+            ctx.fillText('Tap to continue', WIDTH / 2, HEIGHT / 2 + 90);
+        } else {
+            ctx.font = scaledFont(20);
+            ctx.fillText('Press ENTER to restart', WIDTH / 2, HEIGHT / 2 + 80);
+            ctx.fillText('Press H to view High Scores', WIDTH / 2, HEIGHT / 2 + 110);
+        }
     }
 
-
-    // Draw touch control UI for mobile
-    if (isMobile && !paused && !gameOver) {
+    // Draw touch control UI for mobile - show movement indicator
+    if (isMobile && !paused && !gameOver && touchControls.targetX !== null) {
         ctx.globalAlpha = 0.3;
-        
-        // Left button
-        ctx.fillStyle = touchControls.left ? '#00ff00' : '#ffffff';
+        ctx.fillStyle = '#00ff00';
         ctx.beginPath();
-        ctx.arc(WIDTH * 0.15, HEIGHT - 60, 40, 0, Math.PI * 2);
+        ctx.arc(touchControls.targetX, HEIGHT - (40 * SCALE), 30 * SCALE, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 30px Arial';
+
+        // Draw arrow pointing to ship
+        ctx.globalAlpha = 0.6;
+        ctx.fillStyle = '#00ff00';
+        ctx.font = scaledFont(40, 'bold');
         ctx.textAlign = 'center';
-        ctx.fillText('◄', WIDTH * 0.15, HEIGHT - 50);
-        
-        // Right button
-        ctx.fillStyle = touchControls.right ? '#00ff00' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.35, HEIGHT - 60, 40, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.fillText('►', WIDTH * 0.35, HEIGHT - 50);
-        
-        // Shoot button
-        ctx.fillStyle = touchControls.shoot ? '#ff0000' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(WIDTH * 0.85, HEIGHT - 60, 50, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 24px Arial';
-        ctx.fillText('FIRE', WIDTH * 0.85, HEIGHT - 50);
-        
+        ctx.fillText('▲', touchControls.targetX, HEIGHT - (25 * SCALE));
+
         ctx.globalAlpha = 1.0;
     }
 
@@ -3665,50 +3901,183 @@ function draw() {
 }
 
 
-// Touch controls for mobile
+// Touch controls for mobile - Multi-touch support
 if (isMobile) {
+    // Canvas is now only for movement control - entire canvas can be used
     canvas.addEventListener('touchstart', (e) => {
         e.preventDefault();
-        const touch = e.touches[0];
         const rect = canvas.getBoundingClientRect();
-        const x = touch.clientX - rect.left;
-        const y = touch.clientY - rect.top;
-        
-        touchStartX = x;
-        touchStartY = y;
-        
-        // Bottom third is shoot button
-        if (y > HEIGHT * 0.66) {
-            touchControls.shoot = true;
-        } else {
-            // Top two-thirds for movement
-            if (x < WIDTH / 2) {
-                touchControls.left = true;
+
+        // Handle game over tap to continue
+        if (gameOver && !enteringName && !showHighScores) {
+            // Check if this is a high score
+            if (isHighScore(score)) {
+                // Use native prompt for mobile name entry
+                const name = prompt('NEW HIGH SCORE!\nScore: ' + score + '\n\nEnter your name:', '');
+                if (name !== null) { // Allow empty string
+                    playerName = name.slice(0, 15); // Limit to 15 characters
+                    addHighScore(playerName || 'Anonymous', score, 'mobile');
+                }
+                showHighScores = true;
             } else {
-                touchControls.right = true;
+                showHighScores = true;
+            }
+            return;
+        }
+
+        // Handle tap to restart from high scores
+        if (showHighScores) {
+            // Restart game
+            score = 0;
+            lives = 3;
+            shield = 100;
+            level = 1;
+            gameOver = false;
+            shipDestroying = false;
+            shipDestroyFrame = 0;
+            shipRotation = 0;
+            shipSpinSpeed = 0;
+            levelComplete = false;
+            levelCompleteTimer = 0;
+            levelCompleteMessage = '';
+            showHighScores = false;
+            enteringName = false;
+            playerName = '';
+            pumpkinSpeed = isMobile ? 0.5 : 1;
+            bigBossMode = false;
+            bigBoss = null;
+            player.x = WIDTH / 2;
+            player.y = HEIGHT - 60;
+            player.bullets = [];
+            enemyGrenades = [];
+            bossProjectiles = [];
+            powerUps = [];
+            cloneShips = [];
+            pumpkinBits = [];
+            autoShootCooldown = 0;
+            pierceCooldownTimer = 0;
+            activePowerUps = {
+                laser: { active: false, timer: 0 },
+                clone: { active: false, timer: 0 },
+                autoshoot: { active: false, timer: 0 },
+                pierceknife: { active: false, timer: 0 }
+            };
+            shuffleBossNames();
+            initPumpkins();
+            updateUI();
+            return;
+        }
+
+        // Process all new touches on canvas - all for movement
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+
+            // Store touch info
+            activeTouches.set(touch.identifier, { x, y });
+
+            // Canvas touches are for movement
+            if (touchControls.movementTouchId === null) {
+                touchControls.movementTouchId = touch.identifier;
+                touchControls.targetX = x;
             }
         }
     });
-    
+
     canvas.addEventListener('touchmove', (e) => {
         e.preventDefault();
-        const touch = e.touches[0];
         const rect = canvas.getBoundingClientRect();
-        const x = touch.clientX - rect.left;
-        
-        // Update movement based on horizontal position
-        if (touch.clientY - rect.top < HEIGHT * 0.66) {
-            touchControls.left = x < WIDTH / 2;
-            touchControls.right = x >= WIDTH / 2;
+
+        // Update all moving touches
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+
+            // Update stored position
+            if (activeTouches.has(touch.identifier)) {
+                activeTouches.set(touch.identifier, { x, y });
+            }
+
+            // If this is the movement touch, update target position
+            if (touch.identifier === touchControls.movementTouchId) {
+                touchControls.targetX = x;
+            }
         }
     });
-    
+
     canvas.addEventListener('touchend', (e) => {
         e.preventDefault();
-        touchControls.left = false;
-        touchControls.right = false;
-        touchControls.shoot = false;
+
+        // Process all ended touches
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+
+            // Remove from active touches
+            activeTouches.delete(touch.identifier);
+
+            // Clear movement if this was the movement touch
+            if (touch.identifier === touchControls.movementTouchId) {
+                touchControls.movementTouchId = null;
+                touchControls.targetX = null;
+            }
+
+            // Clear shooting if this was the shoot touch
+            if (touch.identifier === touchControls.shootTouchId) {
+                touchControls.shootTouchId = null;
+                touchControls.shoot = false;
+            }
+        }
     });
+
+    canvas.addEventListener('touchcancel', (e) => {
+        e.preventDefault();
+
+        // Handle cancelled touches the same as touchend
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+            activeTouches.delete(touch.identifier);
+
+            if (touch.identifier === touchControls.movementTouchId) {
+                touchControls.movementTouchId = null;
+                touchControls.targetX = null;
+            }
+
+            if (touch.identifier === touchControls.shootTouchId) {
+                touchControls.shootTouchId = null;
+                touchControls.shoot = false;
+            }
+        }
+    });
+
+    // Fire button controls (separate element above canvas)
+    const fireButton = document.getElementById('fireButton');
+    if (fireButton) {
+        fireButton.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            touchControls.shoot = true;
+            // Visual feedback - button press effect
+            fireButton.style.transform = 'scale(0.95)';
+            fireButton.style.opacity = '0.8';
+        });
+
+        fireButton.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            touchControls.shoot = false;
+            // Reset visual state
+            fireButton.style.transform = 'scale(1)';
+            fireButton.style.opacity = '1';
+        });
+
+        fireButton.addEventListener('touchcancel', (e) => {
+            e.preventDefault();
+            touchControls.shoot = false;
+            // Reset visual state
+            fireButton.style.transform = 'scale(1)';
+            fireButton.style.opacity = '1';
+        });
+    }
 }
 
 // Game loop
@@ -3872,7 +4241,7 @@ document.addEventListener('keydown', (e) => {
             showHighScores = false;
             enteringName = false;
             playerName = '';
-            pumpkinSpeed = 1;
+            pumpkinSpeed = isMobile ? 0.5 : 1;
             bigBossMode = false;
             bigBoss = null;
             player.x = WIDTH / 2;
@@ -3913,7 +4282,7 @@ document.addEventListener('keydown', (e) => {
         showHighScores = false;
         enteringName = false;
         playerName = '';
-        pumpkinSpeed = 1;
+        pumpkinSpeed = isMobile ? 0.5 : 1;
         bigBossMode = false;
         bigBoss = null;
         player.x = WIDTH / 2;

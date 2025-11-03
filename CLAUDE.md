@@ -8,7 +8,16 @@ Pumpkin Invaders is a Halloween-themed Space Invaders arcade game built with van
 
 ## Running the Game
 
-Simply open `index.html` in any web browser. No build process, package manager, or dependencies required.
+- **Desktop version**: Open `index.html` in any web browser
+- **Mobile version**: Open `index-mobile.html` for touch-optimized controls
+
+No build process, package manager, or dependencies required.
+
+## File Structure
+
+- **index.html / game.js**: Main desktop version with keyboard controls
+- **index-mobile.html / game-mobile.js**: Mobile version with touch controls and responsive canvas sizing
+- **game-backup.js, game-enhanced*.js, game-working*.js**: Development backups and working versions (not used in production)
 
 ## Architecture
 
@@ -28,10 +37,14 @@ Simply open `index.html` in any web browser. No build process, package manager, 
 - **bossProjectiles**: Homing explosive pumpkins fired by big boss
 
 ### Game State Management
-- Global state variables: `score`, `lives`, `shield`, `level`, `gameOver`, `bigBossMode`, `shipDestroying`
-- Input tracked via `keys` object (keydown/keyup event listeners)
+- Global state variables: `score`, `lives`, `shield`, `level`, `gameOver`, `bigBossMode`, `shipDestroying`, `paused`, `combo`, `screenShake`
+- Input tracked via `keys` object (keydown/keyup event listeners) or `touchControls` object on mobile
 - UI updates via `updateUI()` function that modifies DOM elements
 - Shield system: Player has 100 shield points, depleted by enemy projectiles. When shield reaches 0, player loses a life and ship destruction animation plays.
+- Pause system: Press P to pause/unpause game (pauses all updates but not rendering)
+- Combo system: Rapidly destroying enemies increases combo multiplier, resets after timer expires
+- Settings: Volume control, colorblind mode, difficulty selection, and key rebinding available via settings menu
+- High scores: Top 10 scores stored in localStorage with player names
 
 ### Level Structure
 - **Even levels (2, 4, 6, etc.)**: Standard pumpkin formations with mini-boss and shooting pumpkins
@@ -62,14 +75,15 @@ Pumpkins have two face types (`faceType` property):
 The `drawPumpkin()` function conditionally renders facial features based on damage level and scales boss pumpkins dynamically.
 
 ### Power-Up System
-Four power-up types drop from destroyed pumpkins (15% drop rate for regular, 50% for bosses):
+Power-ups drop from destroyed pumpkins (15% drop rate for regular, 50% for bosses, 100% for big boss):
 
 1. **Laser** (cyan icon): Replaces bullets with continuous beam for 10 seconds. Beam does continuous damage to any pumpkin in its path.
 2. **Clone** (twin ships icon): Spawns ally bat ships that follow the player and shoot simultaneously. Multiple clones can stack.
 3. **Shield** (shield icon): Instant effect, restores 50 shield points (max 100).
 4. **Auto-shoot** (bullets + "AUTO" icon): Automatically fires bullets every 0.25 seconds for 10 seconds. Works with clone ships.
+5. **Pierce** (arrow icon): Bullets pass through pumpkins for 8 seconds instead of stopping. Has cooldown period after expiration.
 
-Power-ups stored in `activePowerUps` object with timers. Clone ships tracked separately in `cloneShips` array with individual timers.
+Power-ups stored in `activePowerUps` object with timers. Clone ships tracked separately in `cloneShips` array with individual timers. Pierce has additional `pierceCooldownTimer` to prevent immediate reactivation.
 
 ### Collision Detection
 - **Bullet-pumpkin collision**: AABB checks in `update()` function, increments damage
@@ -103,17 +117,21 @@ All drawing uses `ctx` (2D rendering context):
 - **Lasers**: Drawn as gradient beam from ship to top of screen via `drawLaser()`
 - **Grenades**: Drawn as mini pumpkins via `drawGrenade()`
 - **Power-ups**: Drawn as green coins with unique icons via `drawPowerUp()`
+- **Particles**: Explosion particles, pumpkin bits, and other visual effects via `particles` array
+- **Screen shake**: Camera shake effect applied via canvas translation when `screenShake > 0`
+- **UI overlays**: Pause menu, settings menu, high scores, combo counter, power-up timers
 
 Context techniques used:
 - `ctx.save()` / `ctx.restore()` for transform isolation
-- `ctx.translate()` for object-relative coordinate systems
+- `ctx.translate()` for object-relative coordinate systems and screen shake
 - `ctx.scale()` for boss growth animation
 - Shadows and glows via `shadowColor` and `shadowBlur` properties
 - `ctx.globalAlpha` for transparency effects
+- Colorblind mode: Alternative color palettes when enabled in settings
 
 ## Modifying Game Parameters
 
-All tunable constants are at the top of `game.js`:
+All tunable constants are at the top of `game.js` and `game-mobile.js`:
 
 ```javascript
 PUMPKIN_ROWS / PUMPKIN_COLS  // Enemy formation size (even levels)
@@ -124,21 +142,53 @@ POWERUP_TYPES / POWERUP_SIZE / POWERUP_FALL_SPEED  // Power-up mechanics
 pumpkinSpeed  // Enemy speed (increases per level)
 player.speed  // Player movement speed
 bigBoss.maxDamage  // Big boss health (default 100)
+volume  // Audio volume (0.0 - 1.0)
+difficulty  // Game difficulty ('easy', 'normal', 'hard')
+keyBindings  // Customizable key mappings for controls
 ```
+
+## Controls
+
+**Desktop (index.html):**
+- Arrow keys: Move left/right
+- Space, A, S, D, F: Shoot (multiple keys for rapid fire)
+- P: Pause/unpause
+- Enter: Restart game or submit high score name
+- Settings menu: Accessible from pause menu
+
+**Mobile (index-mobile.html):**
+- Touch left/right side of canvas: Move ship
+- Red fire button: Shoot
+- Tap pause button: Pause/unpause
 
 ## Key Functions
 
 - **initPumpkins()**: Creates pumpkin formation or big boss based on level number. Designates mini-boss and shooting pumpkins.
-- **update()**: Main game logic - handles all movement, collisions, power-up timers, and game state transitions
-- **draw()**: Renders all game objects in correct order (stars, lasers, ships, pumpkins, projectiles, UI)
+- **update()**: Main game logic - handles all movement, collisions, power-up timers, and game state transitions. Skipped when `paused` is true.
+- **draw()**: Renders all game objects in correct order (stars, lasers, ships, pumpkins, projectiles, UI, overlays). Always runs even when paused.
 - **drawShipDestruction()**: Renders multi-ring explosion animation with debris particles
 - **playSadSound()**: Uses Web Audio API to play descending tone sequence (A-G-F-D)
+- **playSound()**: Generic sound generator using Web Audio API with configurable frequency, duration, and type
+- **loadHighScores() / saveHighScores()**: localStorage persistence for top 10 high scores
+- **drawPauseMenu() / drawSettingsMenu() / drawHighScores()**: UI overlay rendering functions
 
 ## Game Flow
 
 1. Player starts with 3 lives, 100 shield, level 1
-2. Even levels: Destroy all pumpkins to advance (with mini-boss)
-3. Odd levels: Defeat big boss to advance
+2. Even levels (2, 4, 6, ...): Destroy all pumpkins to advance (includes one mini-boss with 8 HP)
+3. Odd levels (3, 5, 7, ...): Defeat big boss to advance (100 HP, unique boss names)
 4. Each level increases pumpkin speed by 0.5
-5. Game over when lives reach 0 or pumpkins/boss reach bottom
-6. Press ENTER to restart after game over
+5. Combo system rewards rapid consecutive kills with score multipliers
+6. Power-ups drop randomly from destroyed enemies
+7. Game over when lives reach 0 or enemies reach bottom of screen
+8. High scores saved to localStorage with player names (top 10)
+9. Press ENTER to restart after game over or submit high score name
+
+## Mobile-Specific Differences
+
+The mobile version (`game-mobile.js`) includes:
+- Touch-based input instead of keyboard (`touchControls` object)
+- Responsive canvas sizing based on device screen dimensions
+- On-screen fire button rendered in bottom-right corner
+- Optimized for portrait and landscape orientations
+- Same gameplay mechanics and features as desktop version
