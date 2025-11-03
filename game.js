@@ -99,9 +99,10 @@ let activePowerUps = {
 let cloneShips = [];
 let autoShootCooldown = 0;
 
-// Witch system (appears on level 4+, every 3rd or 6th level)
+// Witch system (appears on regular levels after bosses, every 3rd or 6th level)
 let witch = null;
 let witchLevelInterval = 0; // Will be set to 3 or 6 at level 4
+let lastWitchLevel = 0; // Track when witch last appeared
 let extraLifeToken = null;
 
 // Parallax starfield (3 layers moving top to bottom)
@@ -541,10 +542,8 @@ function drawCloneShip(clone) {
 }
 
 // Initialize witch
-function initWitch() {
-    // Clear pierce bullets when starting witch level
-    clearPierceBullets();
-
+function createWitch() {
+    // Create witch to fly across screen during regular level
     witch = {
         x: -100, // Start off screen left
         y: 150,
@@ -557,10 +556,6 @@ function initWitch() {
         hit: false,
         alive: true
     };
-    bigBossMode = false;
-    pumpkins = [];
-    enemyGrenades = [];
-    bossProjectiles = [];
 }
 
 // Draw pumpkin with different damage stages
@@ -2380,11 +2375,21 @@ function update() {
                 witchLevelInterval = Math.random() < 0.5 ? 3 : 6;
             }
 
-            // Check if witch should appear
-            if (level >= 4 && witchLevelInterval > 0 && level % witchLevelInterval === 0) {
-                initWitch();
-            } else {
-                initPumpkins();
+            // Always initialize the level (boss or pumpkins)
+            initPumpkins();
+
+            // Check if witch should appear (only on non-boss regular levels)
+            const isBossLevel = level % 3 === 0;
+            const levelsSinceWitch = level - lastWitchLevel;
+            const shouldSpawnWitch = level >= 4 &&
+                                     !isBossLevel &&
+                                     witchLevelInterval > 0 &&
+                                     levelsSinceWitch >= witchLevelInterval;
+
+            if (shouldSpawnWitch) {
+                // Spawn witch alongside pumpkins
+                createWitch();
+                lastWitchLevel = level;
             }
 
             updateUI();
@@ -2750,8 +2755,25 @@ function update() {
                 shield = Math.min(100, shield + 50);
                 updateUI();
             } else if (powerUp.type === 'fullshield') {
-                // Instant effect - restore shield to full
+                // Instant effect - restore shield to full and restore clones
                 shield = 100;
+
+                // Restore all existing clones to full health
+                for (let clone of cloneShips) {
+                    clone.health = 3;
+                }
+
+                // Add clones until we have 5 total
+                while (cloneShips.length < 5) {
+                    const offset = cloneShips.length === 0 ? -60 : (cloneShips.length % 2 === 0 ? -60 : 60);
+                    cloneShips.push({
+                        x: player.x + offset * (Math.floor(cloneShips.length / 2) + 1),
+                        y: player.y,
+                        bullets: [],
+                        health: 3
+                    });
+                }
+
                 updateUI();
             } else if (powerUp.type === 'clone') {
                 // Add a new clone ship with 3 health
@@ -3001,13 +3023,12 @@ function update() {
     // Update witch
     if (witch && witch.alive) {
         if (witch.hit) {
-            // Witch flies away after being hit, then start normal level
+            // Witch flies away after being hit
             witch.y -= 3;
             if (witch.y < -100) {
                 witch.alive = false;
                 witch = null;
-                // Start normal level after witch flies away
-                initPumpkins();
+                // Level continues with pumpkins
             }
         } else {
             // Witch flies back and forth
@@ -3022,12 +3043,11 @@ function update() {
                 witch.passes++;
             }
 
-            // After 5 passes, witch leaves and normal level starts
+            // After 5 passes, witch leaves
             if (witch.passes >= witch.maxPasses) {
                 witch.alive = false;
                 witch = null;
-                // Start normal level after witch escapes
-                initPumpkins();
+                // Level continues with pumpkins
             }
         }
     }
@@ -3064,6 +3084,20 @@ function update() {
                 levelCompleteMessage = 'Level ' + level + ' Complete!\n' + bigBoss.name + ' Defeated!';
                 levelComplete = true;
                 levelCompleteTimer = 180; // 3 seconds at 60fps
+
+                // Clear all bullets and deactivate all power-ups to prevent damaging next level's enemies
+                player.bullets = [];
+                for (let clone of cloneShips) {
+                    clone.bullets = [];
+                }
+                activePowerUps.laser.active = false;
+                activePowerUps.laser.timer = 0;
+                activePowerUps.autoshoot.active = false;
+                activePowerUps.autoshoot.timer = 0;
+                activePowerUps.pierceknife.active = false;
+                activePowerUps.pierceknife.timer = 0;
+                autoShootCooldown = 0;
+
                 playBossDefeatSound();
                 stopSpookyMusic();
             }
@@ -3181,6 +3215,27 @@ function update() {
             levelCompleteMessage = 'Level ' + level + ' Complete!';
             levelComplete = true;
             levelCompleteTimer = 60; // 1 second at 60fps
+
+            // If witch is still alive, she escapes
+            if (witch && witch.alive) {
+                witch.alive = false;
+                witch = null;
+                extraLifeToken = null; // Remove any dropped token
+            }
+
+            // Clear all bullets and deactivate all power-ups to prevent damaging next level's enemies
+            player.bullets = [];
+            for (let clone of cloneShips) {
+                clone.bullets = [];
+            }
+            activePowerUps.laser.active = false;
+            activePowerUps.laser.timer = 0;
+            activePowerUps.autoshoot.active = false;
+            activePowerUps.autoshoot.timer = 0;
+            activePowerUps.pierceknife.active = false;
+            activePowerUps.pierceknife.timer = 0;
+            autoShootCooldown = 0;
+
             playLevelCompleteSound();
         }
     }
@@ -3918,6 +3973,10 @@ document.addEventListener('keydown', (e) => {
             pumpkinSpeed = 1;
             bigBossMode = false;
             bigBoss = null;
+            witch = null;
+            extraLifeToken = null;
+            witchLevelInterval = 0;
+            lastWitchLevel = 0;
             player.x = WIDTH / 2;
             player.y = HEIGHT - 60;
             player.bullets = [];
@@ -3959,6 +4018,10 @@ document.addEventListener('keydown', (e) => {
         pumpkinSpeed = 1;
         bigBossMode = false;
         bigBoss = null;
+        witch = null;
+        extraLifeToken = null;
+        witchLevelInterval = 0;
+        lastWitchLevel = 0;
         player.x = WIDTH / 2;
         player.y = HEIGHT - 60;
         player.bullets = [];
