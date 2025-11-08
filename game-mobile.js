@@ -107,7 +107,7 @@ let shareableScore = {
 
 // Load ARELLA boss image
 const arellaImage = new Image();
-arellaImage.src = 'ARELLA.jpg';
+arellaImage.src = 'Arella/ARELLA.jpg';
 
 // Audio context for sound effects (create once and reuse)
 let audioContext = null;
@@ -200,6 +200,7 @@ let activePowerUps = {
 };
 let cloneShips = [];
 let autoShootCooldown = 0;
+let cloneFireRotationIndex = 0;
 
 // Weapon power-up distribution functions
 function collectWeaponPowerUp(type) {
@@ -271,6 +272,36 @@ function assignLaserToClones() {
         cloneShips[cloneShips.length - 1].powerUpTimer = 600;
     }
     playLaserSound();
+}
+
+function spawnCloneBullets(maxBulletsAllowed) {
+    if (cloneShips.length === 0) return 0;
+
+    let availableSlots = Math.max(0, maxBulletsAllowed - player.bullets.length);
+    if (availableSlots <= 0) return 0;
+
+    let bulletsFired = 0;
+    const totalClones = cloneShips.length;
+
+    for (let i = 0; i < totalClones && availableSlots > 0; i++) {
+        const cloneIndex = (cloneFireRotationIndex + i) % totalClones;
+        const clone = cloneShips[cloneIndex];
+        if (clone.powerUp === 'laser') continue; // lasers don't fire bullets
+
+        player.bullets.push({
+            x: clone.x,
+            y: clone.y - 20,
+            pierce: false
+        });
+        availableSlots--;
+        bulletsFired++;
+    }
+
+    if (bulletsFired > 0 && totalClones > 0) {
+        cloneFireRotationIndex = (cloneFireRotationIndex + 1) % totalClones;
+    }
+
+    return bulletsFired;
 }
 
 // Witch system (appears on regular levels after bosses, every 3rd or 6th level)
@@ -812,13 +843,20 @@ function drawPumpkin(pumpkin) {
 
     // Draw ARELLA image if this is ARELLA boss
     if (pumpkin.isArella && arellaImage.complete) {
-        const imgSize = 40; // Size in canvas units
+        const imgSize = 40; // Base size before scaling
+        const safeScale = Math.max(scale, 0.0001);
+        const maxGlowPixels = WIDTH * 0.45;
+        let outerGlowRadius = Math.min(imgSize / 2 + 10, maxGlowPixels / safeScale);
+        const innerGlowRadius = Math.min(imgSize / 3, outerGlowRadius - 2);
+        if (outerGlowRadius <= innerGlowRadius) {
+            outerGlowRadius = innerGlowRadius + 2;
+        }
 
-        // Draw outer pink glow that fades into the image
-        const gradient = ctx.createRadialGradient(0, 0, imgSize/3, 0, 0, imgSize/2 + 10);
+        // Draw outer pink glow that fades into the image (cap radius so it never covers entire play area)
+        const gradient = ctx.createRadialGradient(0, 0, innerGlowRadius, 0, 0, outerGlowRadius);
         gradient.addColorStop(0, 'rgba(255, 105, 180, 0)');
-        gradient.addColorStop(0.6, 'rgba(255, 105, 180, 0.3)');
-        gradient.addColorStop(1, 'rgba(255, 105, 180, 0.8)');
+        gradient.addColorStop(0.65, 'rgba(255, 105, 180, 0.25)');
+        gradient.addColorStop(1, 'rgba(255, 105, 180, 0.45)');
 
         ctx.fillStyle = gradient;
         ctx.beginPath();
@@ -840,7 +878,7 @@ function drawPumpkin(pumpkin) {
         ctx.strokeStyle = 'rgba(255, 182, 193, 0.6)';
         ctx.lineWidth = 2;
         ctx.shadowColor = '#ff69b4';
-        ctx.shadowBlur = 15 * SCALE;
+        ctx.shadowBlur = Math.min(15 * SCALE, 12);
         ctx.beginPath();
         ctx.arc(0, 0, imgSize/2, 0, Math.PI * 2);
         ctx.stroke();
@@ -3032,8 +3070,10 @@ function update() {
                             player.powerUp !== 'laser' &&
                             player.bullets.length < maxBulletsMobile1;
 
-        const canCloneShoot = autoShootCooldown <= 0 &&
-                             player.bullets.length < maxBulletsMobile1;
+        const clonesEligible = autoShootCooldown <= 0 &&
+                               player.bullets.length < maxBulletsMobile1;
+
+        let shotsFired = 0;
 
         if (canMainShoot) {
             player.bullets.push({
@@ -3041,21 +3081,14 @@ function update() {
                 y: player.y - 20,
                 pierce: player.powerUp === 'pierceknife'
             });
+            shotsFired++;
         }
 
-        if (canCloneShoot) {
-            for (let clone of cloneShips) {
-                if (clone.powerUp !== 'laser' && player.bullets.length < maxBulletsMobile1) {
-                    player.bullets.push({
-                        x: clone.x,
-                        y: clone.y - 20,
-                        pierce: false
-                    });
-                }
-            }
+        if (clonesEligible) {
+            shotsFired += spawnCloneBullets(maxBulletsMobile1);
         }
 
-        if (canMainShoot || canCloneShoot) {
+        if (shotsFired > 0) {
             if (player.powerUp === 'pierceknife') {
                 playPierceSound();
             } else {
@@ -5055,29 +5088,23 @@ document.addEventListener('keydown', (e) => {
         const canCloneShoot = !gameOver && !shipDestroying && !levelComplete &&
                              player.bullets.length < maxBulletsMobile3;
 
+        let manualShots = 0;
+
         if (canMainShoot) {
             player.bullets.push({
                 x: player.x,
                 y: player.y - 20,
                 pierce: player.powerUp === 'pierceknife'
             });
+            manualShots++;
         }
 
         if (canCloneShoot) {
-            // Clone ships shoot too (unless they have laser)
-            for (let clone of cloneShips) {
-                if (clone.powerUp !== 'laser' && player.bullets.length < maxBulletsMobile3) {
-                    player.bullets.push({
-                        x: clone.x,
-                        y: clone.y - 20,
-                        pierce: false
-                    });
-                }
-            }
+            manualShots += spawnCloneBullets(maxBulletsMobile3);
         }
 
         // Play shooting sound if any ship shot
-        if (canMainShoot || canCloneShoot) {
+        if (manualShots > 0) {
             if (player.powerUp === 'pierceknife') {
                 playPierceSound();
             } else {

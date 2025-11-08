@@ -99,7 +99,7 @@ AUDIO_UNLOCK_EVENTS.forEach((event) => {
 
 // Load ARELLA image
 const arellaImage = new Image();
-arellaImage.src = 'ARELLA.jpg';
+arellaImage.src = 'Arella/ARELLA.jpg';
 
 // Player
 const player = {
