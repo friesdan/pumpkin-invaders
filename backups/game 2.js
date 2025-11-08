@@ -1,54 +1,15 @@
 // Game constants
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-let WIDTH = canvas.width;
-let HEIGHT = canvas.height;
-
-// Mobile support
-const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-let touchControls = {
-    left: false,
-    right: false,
-    shoot: false,
-    targetX: null, // Target X position for ship movement
-    movementTouchId: null, // ID of touch controlling movement
-    shootTouchId: null // ID of touch controlling shooting
-};
-let activeTouches = new Map(); // Track all active touches
-
-// Make canvas responsive for mobile (after variables are declared)
-if (isMobile) {
-    // Use more conservative sizing to ensure everything fits on screen
-    const maxWidth = Math.min(window.innerWidth - 20, 800); // Leave 10px margin on each side
-    const maxHeight = Math.min(window.innerHeight * 0.6, 600); // Leave room for UI and headers
-    canvas.width = maxWidth;
-    canvas.height = maxHeight;
-    WIDTH = canvas.width;
-    HEIGHT = canvas.height;
-}
-
-// Global scale factor - everything scales proportionally based on screen size
-const REFERENCE_WIDTH = 800;
-const REFERENCE_HEIGHT = 600;
-const SCALE_X = WIDTH / REFERENCE_WIDTH;
-const SCALE_Y = HEIGHT / REFERENCE_HEIGHT;
-const SCALE = Math.min(SCALE_X, SCALE_Y); // Use smaller dimension to maintain aspect ratio
-
-// Helper function to create scaled font strings
-function scaledFont(size, style = '', family = 'Arial') {
-    const scaledSize = Math.max(8, Math.round(size * SCALE)); // Minimum 8px for readability
-    return `${style} ${scaledSize}px ${family}`.trim();
-}
+const WIDTH = canvas.width;
+const HEIGHT = canvas.height;
 
 // Game state
 let score = 0;
 let lives = 3;
 let shield = 100;
 let level = 1;
-let deaths = 0; // Track number of deaths for survival challenge
 let gameOver = false;
-let gameStarted = false; // Game hasn't started until button is tapped
-let audioContextUnlocked = false; // Track if audio context is unlocked
 let keys = {};
 let bigBossMode = false;
 let bigBoss = null;
@@ -105,10 +66,6 @@ let shareableScore = {
     challengeLevel: 0
 };
 
-// Load ARELLA boss image
-const arellaImage = new Image();
-arellaImage.src = 'ARELLA.jpg';
-
 // Audio context for sound effects (create once and reuse)
 let audioContext = null;
 let sizzleOscillator = null;
@@ -125,73 +82,39 @@ function getAudioContext() {
     return audioContext;
 }
 
-// Ensure Web Audio unlocks on the first user gesture (needed on iOS)
-const AUDIO_UNLOCK_EVENTS = ['pointerdown', 'touchstart', 'keydown'];
-function resumeAudioOnFirstInteraction() {
-    unlockAudioContext();
-    AUDIO_UNLOCK_EVENTS.forEach((event) => {
-        window.removeEventListener(event, resumeAudioOnFirstInteraction);
-    });
-}
-AUDIO_UNLOCK_EVENTS.forEach((event) => {
-    window.addEventListener(event, resumeAudioOnFirstInteraction, { once: true });
-});
-
-// Unlock audio context on first user interaction (required for iOS)
-function unlockAudioContext() {
-    const ctx = getAudioContext();
-    // Resume the context if it's suspended
-    if (ctx.state === 'suspended' || ctx.state === 'interrupted') {
-        ctx.resume();
-    }
-
-    if (!audioContextUnlocked) {
-        // Play a silent sound to unlock on first interaction
-        const oscillator = ctx.createOscillator();
-        const gainNode = ctx.createGain();
-        gainNode.gain.value = 0;
-        oscillator.connect(gainNode);
-        gainNode.connect(ctx.destination);
-        oscillator.start(ctx.currentTime);
-        oscillator.stop(ctx.currentTime + 0.01);
-        audioContextUnlocked = true;
-    }
-}
-
-// Player (all sizes and speeds scaled, smaller on mobile)
-const playerSizeMultiplier = isMobile ? 0.7 : 1; // 30% smaller on mobile
+// Player
 const player = {
     x: WIDTH / 2,
-    y: HEIGHT - (60 * SCALE),
-    width: 50 * SCALE * playerSizeMultiplier,
-    height: 40 * SCALE * playerSizeMultiplier,
-    speed: 5 * SCALE,
+    y: HEIGHT - 60,
+    width: 50,
+    height: 40,
+    speed: 5,
     bullets: [],
     powerUp: null, // Can be 'laser', 'pierceknife', or null
     powerUpTimer: 0
 };
 
-// Pumpkins (all sizes and speeds scaled)
+// Pumpkins
 let pumpkins = [];
 let enemyGrenades = [];
 let bossProjectiles = [];
 const PUMPKIN_ROWS = 4;
 const PUMPKIN_COLS = 8;
-const PUMPKIN_SIZE = 40 * SCALE;
-const PUMPKIN_SPACING = 60 * SCALE;
+const PUMPKIN_SIZE = 40;
+const PUMPKIN_SPACING = 60;
 let pumpkinDirection = 1;
-let pumpkinSpeed = (isMobile ? 0.5 : 1) * SCALE; // Slower speed for mobile, scaled
-let pumpkinDropDistance = (isMobile ? 10 : 20) * SCALE; // Smaller drops for mobile, scaled
-const GRENADE_SPEED = 2 * SCALE;
-const GRENADE_SIZE = 12 * SCALE;
+let pumpkinSpeed = 1;
+let pumpkinDropDistance = 20;
+const GRENADE_SPEED = 2;
+const GRENADE_SIZE = 12;
 const GRENADE_DAMAGE = 15;
 
-// Power-ups (sizes and speeds scaled)
+// Power-ups
 let powerUps = [];
 const POWERUP_TYPES = ['laser', 'clone', 'shield', 'autoshoot', 'pierceknife'];
 const POWERUP_TYPES_WITH_FULLSHIELD = ['laser', 'clone', 'shield', 'fullshield', 'autoshoot', 'pierceknife'];
-const POWERUP_SIZE = 30 * SCALE;
-const POWERUP_FALL_SPEED = 3 * SCALE;
+const POWERUP_SIZE = 30;
+const POWERUP_FALL_SPEED = 3;
 let activePowerUps = {
     laser: { active: false, timer: 0 },
     clone: { active: false, timer: 0 },
@@ -285,11 +208,11 @@ let starLayers = [];
 function initStars() {
     starLayers = [
         // Layer 1 (farthest, slowest) - 30 small stars
-        { stars: [], speed: 0.3 * SCALE, size: 1 * SCALE, opacity: 0.4, count: 30 },
+        { stars: [], speed: 0.3, size: 1, opacity: 0.4, count: 30 },
         // Layer 2 (middle) - 25 medium stars
-        { stars: [], speed: 0.6 * SCALE, size: 2 * SCALE, opacity: 0.7, count: 25 },
+        { stars: [], speed: 0.6, size: 2, opacity: 0.7, count: 25 },
         // Layer 3 (closest, fastest) - 20 larger stars
-        { stars: [], speed: 1.0 * SCALE, size: 3 * SCALE, opacity: 1.0, count: 20 }
+        { stars: [], speed: 1.0, size: 3, opacity: 1.0, count: 20 }
     ];
 
     // Initialize each layer's stars
@@ -306,10 +229,10 @@ function initStars() {
 // Initialize stars on load
 initStars();
 
-// Bullet settings (sizes and speeds scaled)
-const BULLET_WIDTH = 4 * SCALE;
-const BULLET_HEIGHT = 15 * SCALE;
-const BULLET_SPEED = 7 * SCALE;
+// Bullet settings
+const BULLET_WIDTH = 4;
+const BULLET_HEIGHT = 15;
+const BULLET_SPEED = 7;
 
 // Pumpkin damage stages (0 = no damage, 1-2 = carved stages, 3 = destroyed)
 const DAMAGE_STAGES = 3;
@@ -384,7 +307,6 @@ function clearPierceBullets() {
 function initPumpkins() {
     // Clear pierce bullets when starting new level
     clearPierceBullets();
-
     // Check if it's time for a big boss (every 3 levels)
     if (level % 3 === 0) {
         bigBossMode = true;
@@ -422,35 +344,25 @@ function initPumpkins() {
         // Progressive difficulty: HP increases with level (halved from original)
         const baseHP = 50 + (Math.floor(level / 3) * 25);
 
-        // Check if ARELLA should appear (any boss level after 15, 25% chance)
-        const isArellaLevel = level > 15 && Math.random() < 0.25;
-        const bossName = isArellaLevel ? 'ARELLA THE FINAL BOSS' : shuffledBossNames[nameIndex];
-        const projectileType = isArellaLevel ? 'glitter' : (projectileTypes[bossName] || projectileTypes['default']);
+        const bossName = shuffledBossNames[nameIndex];
+        const projectileType = projectileTypes[bossName] || projectileTypes['default'];
 
         bigBoss = {
             x: WIDTH / 2,
-            y: HEIGHT * 0.25, // Boss at 25% down from top (scales with screen)
+            y: 250,
             width: bossSize,
             height: bossSize,
             baseSize: PUMPKIN_SIZE,
-            minSize: PUMPKIN_SIZE * 2,
-            maxSize: bossSize,
-            pendingSize: null,
             damage: 0,
-            maxDamage: isArellaLevel ? baseHP * 1.5 : baseHP, // ARELLA has 50% more HP
+            maxDamage: baseHP,
             alive: true,
             exploding: false,
             explosionFrame: 0,
-            color: isArellaLevel ? '#ff69b4' : bossColors[colorIndex], // Hot pink for ARELLA
+            color: bossColors[colorIndex],
             faceType: 'scary',
             shootCooldown: 0,
             name: bossName,
-            projectileType: projectileType,
-            isArella: isArellaLevel,
-            teleportCooldown: 0,
-            teleporting: false,
-            teleportFrame: 0,
-            dodgeChance: 0.2 // 1 in 5 chance (20%)
+            projectileType: projectileType
         };
         bossProjectiles = [];
         return;
@@ -459,15 +371,8 @@ function initPumpkins() {
     bigBossMode = false;
     pumpkins = [];
     enemyGrenades = [];
-
-    // Scale pumpkin formation to fit screen width
-    const totalFormationWidth = (PUMPKIN_COLS - 1) * PUMPKIN_SPACING + PUMPKIN_SIZE;
-    const availableWidth = WIDTH - (100 * SCALE); // Leave scaled margin on each side
-    const scale = Math.min(1, availableWidth / totalFormationWidth);
-    const scaledSpacing = PUMPKIN_SPACING * scale;
-    const actualFormationWidth = (PUMPKIN_COLS - 1) * scaledSpacing + PUMPKIN_SIZE;
-    const startX = (WIDTH - actualFormationWidth) / 2; // Center the formation
-    const startY = 80 * SCALE; // Scale starting Y position
+    const startX = 100;
+    const startY = 80;
 
     // Calculate number of boss pumpkins based on level (1 per 10 levels)
     const numBosses = Math.floor(level / 10) + 1;
@@ -488,8 +393,8 @@ function initPumpkins() {
             const canShoot = !isBoss && Math.random() < 0.2; // 20% of non-boss pumpkins can shoot
 
             pumpkins.push({
-                x: startX + col * scaledSpacing,
-                y: startY + row * scaledSpacing,
+                x: startX + col * PUMPKIN_SPACING,
+                y: startY + row * PUMPKIN_SPACING,
                 width: PUMPKIN_SIZE,
                 height: PUMPKIN_SIZE,
                 damage: 0,
@@ -511,7 +416,6 @@ function initPumpkins() {
 function drawPlayer() {
     ctx.save();
     ctx.translate(player.x, player.y);
-    ctx.scale(playerSizeMultiplier, playerSizeMultiplier); // Scale player visually
 
     // Bat body (dark purple)
     ctx.fillStyle = getColor('#4a3580', '#0066cc');
@@ -738,11 +642,11 @@ function drawCloneShip(clone) {
 function createWitch() {
     // Create witch to fly across screen during regular level
     witch = {
-        x: -100 * SCALE, // Start off screen left
-        y: 150 * SCALE,
-        width: 60 * SCALE,
-        height: 60 * SCALE,
-        speed: 3 * SCALE,
+        x: -100, // Start off screen left
+        y: 150,
+        width: 60,
+        height: 60,
+        speed: 3,
         direction: 1, // 1 = right, -1 = left
         passes: 0,
         maxPasses: 5,
@@ -769,28 +673,9 @@ function drawPumpkin(pumpkin) {
         pumpkin.height = pumpkin.baseSize * scale;
     }
 
-    // Handle teleportation effect for ARELLA
-    if (pumpkin.isArella && pumpkin.teleporting) {
-        const teleportAlpha = pumpkin.teleportFrame < 15 ?
-            1 - (pumpkin.teleportFrame / 15) : // Fade out
-            (pumpkin.teleportFrame - 15) / 15; // Fade in
-        ctx.globalAlpha = teleportAlpha;
-
-        // Pink sparkle effect during teleport
-        for (let i = 0; i < 5; i++) {
-            const angle = (pumpkin.teleportFrame / 30) * Math.PI * 2 + (i * Math.PI * 2 / 5);
-            const radius = 30 + pumpkin.teleportFrame * 2;
-            ctx.fillStyle = '#ff69b4';
-            ctx.beginPath();
-            ctx.arc(Math.cos(angle) * radius, Math.sin(angle) * radius, 3, 0, Math.PI * 2);
-            ctx.fill();
-        }
-    }
-
     if (pumpkin.exploding) {
-        // Explosion effect - bigger pumpkins have proportionally larger explosions
-        const explosionMultiplier = 5 * Math.max(1, scale); // Scale up explosion for bigger pumpkins
-        const size = pumpkin.explosionFrame * explosionMultiplier;
+        // Explosion effect
+        const size = pumpkin.explosionFrame * 5 * scale;
         const alpha = 1 - (pumpkin.explosionFrame / 10);
 
         ctx.globalAlpha = alpha;
@@ -810,46 +695,6 @@ function drawPumpkin(pumpkin) {
 
     ctx.scale(scale, scale);
 
-    // Draw ARELLA image if this is ARELLA boss
-    if (pumpkin.isArella && arellaImage.complete) {
-        const imgSize = 40; // Size in canvas units
-
-        // Draw outer pink glow that fades into the image
-        const gradient = ctx.createRadialGradient(0, 0, imgSize/3, 0, 0, imgSize/2 + 10);
-        gradient.addColorStop(0, 'rgba(255, 105, 180, 0)');
-        gradient.addColorStop(0.6, 'rgba(255, 105, 180, 0.3)');
-        gradient.addColorStop(1, 'rgba(255, 105, 180, 0.8)');
-
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.arc(0, 0, imgSize/2 + 10, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Clip to circular shape to cut off dark corners of jpg
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(0, 0, imgSize/2, 0, Math.PI * 2);
-        ctx.clip();
-
-        // Draw the ARELLA face (clipped to circle)
-        ctx.drawImage(arellaImage, -imgSize/2, -imgSize/2, imgSize, imgSize);
-
-        ctx.restore();
-
-        // Subtle sparkle effect around edge
-        ctx.strokeStyle = 'rgba(255, 182, 193, 0.6)';
-        ctx.lineWidth = 2;
-        ctx.shadowColor = '#ff69b4';
-        ctx.shadowBlur = 15 * SCALE;
-        ctx.beginPath();
-        ctx.arc(0, 0, imgSize/2, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-
-        ctx.restore();
-        return; // Skip regular pumpkin drawing
-    }
-
     // Pumpkin body
     ctx.fillStyle = getColor(pumpkin.color || '#ff6600', pumpkin.color || '#ff9933');
     ctx.beginPath();
@@ -861,7 +706,7 @@ function drawPumpkin(pumpkin) {
         ctx.strokeStyle = '#ffaa00';
         ctx.lineWidth = 3;
         ctx.shadowColor = '#ffaa00';
-        ctx.shadowBlur = 15 * SCALE;
+        ctx.shadowBlur = 15;
         ctx.beginPath();
         ctx.ellipse(0, 0, 20, 18, 0, 0, Math.PI * 2);
         ctx.stroke();
@@ -982,8 +827,7 @@ function drawPumpkin(pumpkin) {
 
     // Draw boss-specific accessories
     if (pumpkin.name === 'LeBoss James') {
-        // Draw beard (scaled)
-        const s = SCALE;
+        // Draw beard
         ctx.fillStyle = '#1a0a00';
         ctx.beginPath();
         ctx.moveTo(-8, 12);
@@ -1005,8 +849,7 @@ function drawPumpkin(pumpkin) {
         ctx.closePath();
         ctx.fill();
     } else if (pumpkin.name === 'Boss Hog') {
-        // Draw top hat (scaled)
-        const s = SCALE;
+        // Draw top hat
         ctx.fillStyle = '#000000';
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 1;
@@ -1075,7 +918,7 @@ function drawBullet(bullet) {
         // Giant knife blade (silver with glow)
         ctx.fillStyle = '#c0c0c0';
         ctx.shadowColor = '#00ffff';
-        ctx.shadowBlur = 20 * SCALE;
+        ctx.shadowBlur = 20;
         ctx.beginPath();
         ctx.moveTo(0, 0);
         ctx.lineTo(-3, 12);
@@ -1192,72 +1035,69 @@ function drawWitch(witch) {
 
     // Glowing outline for visibility
     ctx.shadowColor = '#FFD700';
-    ctx.shadowBlur = 20 * SCALE;
+    ctx.shadowBlur = 20;
     ctx.strokeStyle = '#FFD700';
-    ctx.lineWidth = 2 * SCALE;
-
-    // Scale all witch elements
-    const s = SCALE;
+    ctx.lineWidth = 2;
 
     // Broomstick
     ctx.strokeStyle = '#8B4513';
-    ctx.lineWidth = 4 * s;
+    ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.moveTo(-25 * s, 10 * s);
-    ctx.lineTo(25 * s, 10 * s);
+    ctx.moveTo(-25, 10);
+    ctx.lineTo(25, 10);
     ctx.stroke();
 
     // Broom bristles
     ctx.strokeStyle = '#DAA520';
-    ctx.lineWidth = 2 * s;
+    ctx.lineWidth = 2;
     for (let i = -5; i < 10; i += 3) {
         ctx.beginPath();
-        ctx.moveTo(20 * s, 10 * s);
-        ctx.lineTo((25 + i) * s, 18 * s);
+        ctx.moveTo(20, 10);
+        ctx.lineTo(25 + i, 18);
         ctx.stroke();
     }
 
     // Witch body (black dress)
     ctx.fillStyle = '#000000';
     ctx.beginPath();
-    ctx.moveTo(0, -5 * s);
-    ctx.lineTo(-12 * s, 10 * s);
-    ctx.lineTo(12 * s, 10 * s);
+    ctx.moveTo(0, -5);
+    ctx.lineTo(-12, 10);
+    ctx.lineTo(12, 10);
     ctx.closePath();
     ctx.fill();
 
     // Witch head (green)
     ctx.fillStyle = '#90EE90';
     ctx.beginPath();
-    ctx.arc(0, -12 * s, 8 * s, 0, Math.PI * 2);
+    ctx.arc(0, -12, 8, 0, Math.PI * 2);
     ctx.fill();
 
     // Witch hat
     ctx.fillStyle = '#4B0082';
     ctx.beginPath();
-    ctx.moveTo(-10 * s, -12 * s);
-    ctx.lineTo(0, -28 * s);
-    ctx.lineTo(10 * s, -12 * s);
+    ctx.moveTo(-10, -12);
+    ctx.lineTo(0, -28);
+    ctx.lineTo(10, -12);
     ctx.closePath();
     ctx.fill();
 
     // Hat brim
-    ctx.fillRect(-12 * s, -12 * s, 24 * s, 3 * s);
+    ctx.fillRect(-12, -12, 24, 3);
 
     // Witch face details (evil grin)
     ctx.fillStyle = '#000000';
     ctx.beginPath();
-    ctx.arc(-3 * s, -13 * s, 1.5 * s, 0, Math.PI * 2);
+    ctx.arc(-3, -13, 1.5, 0, Math.PI * 2);
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(3 * s, -13 * s, 1.5 * s, 0, Math.PI * 2);
+    ctx.arc(3, -13, 1.5, 0, Math.PI * 2);
     ctx.fill();
 
     // Evil smile
     ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 1.5 * s;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(0, -10 * s, 4 * s, 0, Math.PI);
+    ctx.arc(0, -10, 4, 0, Math.PI);
     ctx.stroke();
 
     ctx.restore();
@@ -1268,21 +1108,19 @@ function drawExtraLifeToken(token) {
     ctx.save();
     ctx.translate(token.x, token.y);
 
-    const s = SCALE;
-
     // Heart shape for extra life
     ctx.fillStyle = '#FF1493';
     ctx.shadowColor = '#FF1493';
-    ctx.shadowBlur = 15 * s;
+    ctx.shadowBlur = 15;
 
     ctx.beginPath();
-    ctx.moveTo(0, 5 * s);
-    ctx.bezierCurveTo(-8 * s, -2 * s, -15 * s, -8 * s, -15 * s, -13 * s);
-    ctx.bezierCurveTo(-15 * s, -18 * s, -10 * s, -20 * s, -5 * s, -18 * s);
-    ctx.bezierCurveTo(0, -20 * s, 0, -20 * s, 0, -20 * s);
-    ctx.bezierCurveTo(0, -20 * s, 0, -20 * s, 5 * s, -18 * s);
-    ctx.bezierCurveTo(10 * s, -20 * s, 15 * s, -18 * s, 15 * s, -13 * s);
-    ctx.bezierCurveTo(15 * s, -8 * s, 8 * s, -2 * s, 0, 5 * s);
+    ctx.moveTo(0, 5);
+    ctx.bezierCurveTo(-8, -2, -15, -8, -15, -13);
+    ctx.bezierCurveTo(-15, -18, -10, -20, -5, -18);
+    ctx.bezierCurveTo(0, -20, 0, -20, 0, -20);
+    ctx.bezierCurveTo(0, -20, 0, -20, 5, -18);
+    ctx.bezierCurveTo(10, -20, 15, -18, 15, -13);
+    ctx.bezierCurveTo(15, -8, 8, -2, 0, 5);
     ctx.closePath();
     ctx.fill();
 
@@ -1290,9 +1128,9 @@ function drawExtraLifeToken(token) {
 
     // "+1" text
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = scaledFont(12, 'bold');
+    ctx.font = 'bold 12px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('+1', 0, -10 * s);
+    ctx.fillText('+1', 0, -10);
 
     ctx.restore();
 }
@@ -1438,7 +1276,7 @@ function drawPowerUp(powerUp) {
 
         // "AUTO" text
         ctx.fillStyle = '#003300';
-        ctx.font = scaledFont(6, 'bold');
+        ctx.font = 'bold 6px Arial';
         ctx.textAlign = 'center';
         ctx.fillText('AUTO', 0, 6);
 
@@ -1509,7 +1347,7 @@ function drawBossProjectile(projectile) {
             // Planet/sphere
             ctx.fillStyle = '#4466ff';
             ctx.shadowColor = '#6688ff';
-            ctx.shadowBlur = 15 * SCALE;
+            ctx.shadowBlur = 15;
             ctx.beginPath();
             ctx.arc(0, 0, size, 0, Math.PI * 2);
             ctx.fill();
@@ -1526,7 +1364,7 @@ function drawBossProjectile(projectile) {
             // Fireball
             ctx.fillStyle = '#ff4400';
             ctx.shadowColor = '#ff6600';
-            ctx.shadowBlur = 20 * SCALE;
+            ctx.shadowBlur = 20;
             ctx.beginPath();
             ctx.arc(0, 0, size, 0, Math.PI * 2);
             ctx.fill();
@@ -1542,7 +1380,7 @@ function drawBossProjectile(projectile) {
             ctx.strokeStyle = '#8800ff';
             ctx.lineWidth = 4;
             ctx.shadowColor = '#8800ff';
-            ctx.shadowBlur = 15 * SCALE;
+            ctx.shadowBlur = 15;
             ctx.beginPath();
             ctx.ellipse(0, 0, size * 1.5, size * 0.5, 0, 0, Math.PI * 2);
             ctx.stroke();
@@ -1595,7 +1433,7 @@ function drawBossProjectile(projectile) {
             ctx.fillRect(-15, 5, 30, 10);
             ctx.shadowBlur = 0;
             ctx.fillStyle = '#ffffff';
-            ctx.font = scaledFont(12, 'bold');
+            ctx.font = 'bold 12px Arial';
             ctx.textAlign = 'center';
             ctx.fillText('POW', 0, 3);
             break;
@@ -1662,7 +1500,7 @@ function drawBossProjectile(projectile) {
             // Lightning bolt
             ctx.fillStyle = '#ffff00';
             ctx.shadowColor = '#ffff00';
-            ctx.shadowBlur = 20 * SCALE;
+            ctx.shadowBlur = 20;
             ctx.beginPath();
             ctx.moveTo(0, -20);
             ctx.lineTo(5, -5);
@@ -1773,49 +1611,11 @@ function drawBossProjectile(projectile) {
             ctx.shadowBlur = 0;
             break;
 
-        case 'glitter': // ARELLA's pink glitter projectiles
-            // Draw multiple glitter particles
-            for (let i = 0; i < 8; i++) {
-                const angle = (Date.now() / 200 + i) * Math.PI / 4;
-                const dist = Math.sin(Date.now() / 150) * 5;
-                const px = Math.cos(angle) * (10 + dist);
-                const py = Math.sin(angle) * (10 + dist);
-
-                // Pink glitter particle
-                ctx.fillStyle = i % 2 === 0 ? '#ff69b4' : '#ffb6c1';
-                ctx.shadowColor = '#ff69b4';
-                ctx.shadowBlur = 15;
-                ctx.beginPath();
-                ctx.arc(px, py, 3, 0, Math.PI * 2);
-                ctx.fill();
-
-                // Sparkle effect
-                if (i % 3 === 0) {
-                    ctx.strokeStyle = '#ffffff';
-                    ctx.lineWidth = 1;
-                    ctx.beginPath();
-                    ctx.moveTo(px - 4, py);
-                    ctx.lineTo(px + 4, py);
-                    ctx.moveTo(px, py - 4);
-                    ctx.lineTo(px, py + 4);
-                    ctx.stroke();
-                }
-            }
-
-            // Central glow
-            ctx.fillStyle = 'rgba(255, 105, 180, 0.5)';
-            ctx.shadowBlur = 20;
-            ctx.beginPath();
-            ctx.arc(0, 0, size * 0.6, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.shadowBlur = 0;
-            break;
-
         default: // pumpkin
             // Large explosive pumpkin
             ctx.fillStyle = '#ff3300';
             ctx.shadowColor = '#ff6600';
-            ctx.shadowBlur = 15 * SCALE;
+            ctx.shadowBlur = 15;
             ctx.beginPath();
             ctx.ellipse(0, 0, size, size - 2, 0, 0, Math.PI * 2);
             ctx.fill();
@@ -1913,7 +1713,7 @@ function drawShipDestruction() {
             ctx.globalAlpha = alpha;
             ctx.fillStyle = i % 2 === 0 ? '#ff6600' : '#ffaa00';
             ctx.shadowColor = '#ff6600';
-            ctx.shadowBlur = 20 * SCALE;
+            ctx.shadowBlur = 20;
             ctx.beginPath();
             ctx.arc(0, 0, size, 0, Math.PI * 2);
             ctx.fill();
@@ -1940,14 +1740,14 @@ function drawShipDestruction() {
     if (shipDestroyFrame > 25) {
         ctx.save();
         ctx.fillStyle = '#ff0000';
-        ctx.font = scaledFont(60, 'bold');
+        ctx.font = 'bold 60px Arial';
         ctx.textAlign = 'center';
         ctx.shadowColor = '#ff0000';
-        ctx.shadowBlur = 20 * SCALE;
+        ctx.shadowBlur = 20;
         ctx.fillText('YOU DIED!', WIDTH / 2, HEIGHT / 2 + 100);
 
         ctx.fillStyle = '#ffaa00';
-        ctx.font = scaledFont(30, 'bold');
+        ctx.font = 'bold 30px Arial';
         ctx.shadowColor = '#ffaa00';
         ctx.shadowBlur = 10;
         const livesText = lives === 1 ? '1 life left' : lives + ' lives left';
@@ -1955,6 +1755,53 @@ function drawShipDestruction() {
         ctx.shadowBlur = 0;
         ctx.restore();
     }
+}
+
+// VIRAL FEATURE: Enhanced game over screen with share buttons
+function drawGameOver() {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+    ctx.fillStyle = '#ff0000';
+    ctx.font = 'bold 60px "Courier New"';
+    ctx.textAlign = 'center';
+    ctx.fillText('GAME OVER', WIDTH/2, HEIGHT/2 - 120);
+
+    ctx.fillStyle = '#ff8800';
+    ctx.font = '30px "Courier New"';
+    ctx.fillText(`Final Score: ${score}`, WIDTH/2, HEIGHT/2 - 50);
+    ctx.fillText(`Level Reached: ${level}`, WIDTH/2, HEIGHT/2 - 10);
+
+    // Check if beat challenge
+    if (shareableScore.challengeMode && score > shareableScore.challengeScore) {
+        ctx.fillStyle = '#00ff00';
+        ctx.font = 'bold 24px "Courier New"';
+        ctx.fillText('🏆 CHALLENGE BEATEN! 🏆', WIDTH/2, HEIGHT/2 + 30);
+    }
+
+    // Share buttons
+    ctx.fillStyle = '#4a90e2';
+    ctx.fillRect(WIDTH/2 - 180, HEIGHT/2 + 70, 120, 40);
+    ctx.fillStyle = '#7289da';
+    ctx.fillRect(WIDTH/2 - 50, HEIGHT/2 + 70, 120, 40);
+    ctx.fillStyle = '#1da1f2';
+    ctx.fillRect(WIDTH/2 + 80, HEIGHT/2 + 70, 120, 40);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '16px "Courier New"';
+    ctx.fillText('📸 Screenshot', WIDTH/2 - 120, HEIGHT/2 + 96);
+    ctx.fillText('💬 Discord', WIDTH/2 + 10, HEIGHT/2 + 96);
+    ctx.fillText('🐦 Twitter', WIDTH/2 + 140, HEIGHT/2 + 96);
+
+    // Instructions
+    ctx.fillStyle = '#ffaa00';
+    ctx.font = '20px "Courier New"';
+    ctx.fillText('Press H for High Scores', WIDTH/2, HEIGHT/2 + 150);
+
+    ctx.fillStyle = '#888888';
+    ctx.font = '18px "Courier New"';
+    ctx.fillText('Press ENTER to restart', WIDTH/2, HEIGHT/2 + 190);
+    ctx.fillText('S=Screenshot | T=Twitter | D=Discord | C=Copy Link', WIDTH/2, HEIGHT/2 + 220);
 }
 
 // Play sad bleepy sound (using Web Audio API) - Extended for dramatic death
@@ -2040,9 +1887,8 @@ function playCloneHitSound(hitsTaken) {
         // Descending frequencies (E, D, C)
         const frequencies = [659, 587, 523]; // E5, D5, C5
 
-        // Set frequencies for each tone based on hits taken (clamp to array length)
-        const clampedHits = Math.min(hitsTaken, frequencies.length);
-        for (let i = 0; i < clampedHits; i++) {
+        // Set frequencies for each tone based on hits taken
+        for (let i = 0; i < hitsTaken; i++) {
             oscillator.frequency.setValueAtTime(frequencies[i], now + (i * toneDuration));
         }
 
@@ -2279,17 +2125,11 @@ function startBackgroundMusic() {
 }
 
 function stopBackgroundMusic() {
-    // Clear arrays immediately so music can restart
-    backgroundMusicOscillators = [];
-
     if (backgroundMusicGain) {
         const ctx = getAudioContext();
-        try {
-            backgroundMusicGain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-        } catch (e) {
-            // Context might be suspended, just clear
-        }
+        backgroundMusicGain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
         setTimeout(() => {
+            backgroundMusicOscillators = [];
             backgroundMusicGain = null;
         }, 500);
     }
@@ -2330,56 +2170,6 @@ function stopSizzle() {
         }
     } catch (e) {
         console.log('Audio error:', e);
-    }
-}
-
-function pauseAllMusic() {
-    stopBackgroundMusic();
-    stopSpookyMusic();
-    stopSizzle();
-    backgroundMusicOscillators = [];
-    backgroundMusicGain = null;
-    spookyMusicOscillators = [];
-    spookyMusicGain = null;
-    sizzleOscillator = null;
-    sizzleGain = null;
-}
-
-async function resumeMusicAfterPause() {
-    if (gameOver) return;
-
-    try {
-        const ctx = getAudioContext();
-        if (ctx.state === 'suspended' || ctx.state === 'interrupted') {
-            await ctx.resume();
-        }
-    } catch (e) {
-        console.log('Audio resume error:', e);
-    }
-
-    backgroundMusicOscillators = [];
-    backgroundMusicGain = null;
-    spookyMusicOscillators = [];
-    spookyMusicGain = null;
-
-    if (!bigBossMode) {
-        startBackgroundMusic();
-    } else if (bigBoss && bigBoss.alive) {
-        const bossIndex = Math.floor((level / 3) - 1);
-        const musicTheme = bossIndex % 5;
-        startSpookyMusic(musicTheme);
-    }
-}
-
-function handleStartOrResumeInput() {
-    unlockAudioContext();
-    const startingFresh = !gameStarted;
-    const wasUnpausing = paused;
-    gameStarted = true;
-    paused = false;
-
-    if (startingFresh || wasUnpausing) {
-        resumeMusicAfterPause();
     }
 }
 
@@ -2598,8 +2388,8 @@ function isHighScore(newScore) {
     return newScore > highScores[highScores.length - 1].score;
 }
 
-function addHighScore(name, newScore) {
-    highScores.push({ name: name, score: newScore });
+function addHighScore(name, newScore, platform = 'desktop') {
+    highScores.push({ name: name, score: newScore, platform: platform });
     highScores.sort((a, b) => b.score - a.score);
     highScores = highScores.slice(0, 100); // Keep only top 100
     saveHighScores();
@@ -2642,52 +2432,20 @@ function shareToTwitter() {
     trackShare('twitter', score);
 }
 
-async function shareToDiscord() {
+function shareToDiscord() {
     const text = `🎃 I just scored ${score} on Pumpkin Invaders! Can you beat it?\nhttps://pumpkininvaders.com?challenge=${btoa(`${score}:${level}`)}`;
-    const copied = await copyTextToClipboard(text);
-    if (copied) {
+    navigator.clipboard.writeText(text).then(() => {
         alert('✅ Share message copied! Paste it in Discord!');
         trackShare('discord', score);
-    } else {
-        alert('⚠️ Clipboard unavailable. Manually copy:\n\n' + text);
-    }
+    });
 }
 
-async function copyShareLink() {
+function copyShareLink() {
     const url = 'https://pumpkininvaders.com?challenge=' + btoa(`${score}:${level}`);
-    const copied = await copyTextToClipboard(url);
-    if (copied) {
+    navigator.clipboard.writeText(url).then(() => {
         alert('✅ Link copied to clipboard!');
         trackShare('copy', score);
-    } else {
-        alert('⚠️ Clipboard unavailable. Manually copy:\n\n' + url);
-    }
-}
-
-async function copyTextToClipboard(text) {
-    if (navigator.clipboard && window.isSecureContext) {
-        try {
-            await navigator.clipboard.writeText(text);
-            return true;
-        } catch (err) {
-            // Fall through to execCommand fallback
-        }
-    }
-
-    try {
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.focus();
-        textarea.select();
-        const successful = document.execCommand('copy');
-        document.body.removeChild(textarea);
-        return successful;
-    } catch (err) {
-        return false;
-    }
+    });
 }
 
 async function downloadScreenshot() {
@@ -2701,13 +2459,13 @@ async function downloadScreenshot() {
 
     // Add score overlay
     tempCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    tempCtx.fillRect(0, HEIGHT - 80 * SCALE, WIDTH, 80 * SCALE);
+    tempCtx.fillRect(0, HEIGHT - 80, WIDTH, 80);
     tempCtx.fillStyle = '#ff8800';
-    tempCtx.font = `bold ${24 * SCALE}px "Courier New"`;
+    tempCtx.font = 'bold 24px "Courier New"';
     tempCtx.textAlign = 'center';
-    tempCtx.fillText(`🎃 Score: ${score} | Level: ${level} 🎃`, WIDTH/2, HEIGHT - 45 * SCALE);
-    tempCtx.font = `${16 * SCALE}px "Courier New"`;
-    tempCtx.fillText('pumpkininvaders.com', WIDTH/2, HEIGHT - 20 * SCALE);
+    tempCtx.fillText(`🎃 Score: ${score} | Level: ${level} 🎃`, WIDTH/2, HEIGHT - 45);
+    tempCtx.font = '16px "Courier New"';
+    tempCtx.fillText('pumpkininvaders.com', WIDTH/2, HEIGHT - 20);
 
     tempCanvas.toBlob((blob) => {
         const url = URL.createObjectURL(blob);
@@ -2774,9 +2532,7 @@ function updateDailyChallenge() {
             }
             break;
         case 'survival':
-            // Track level progress, complete if target level reached with no deaths
-            dailyChallenge.progress = level;
-            if (deaths === 0 && level >= dailyChallenge.target) {
+            if (lives === 3 && level >= dailyChallenge.target) {
                 completeDailyChallenge();
             }
             break;
@@ -2797,17 +2553,17 @@ function updateDailyChallenge() {
 function completeDailyChallenge() {
     dailyChallenge.completed = true;
     localStorage.setItem('dailyChallenge', JSON.stringify(dailyChallenge));
-    playHappySound(); // Victory sound
+    playSound(880, 0.3, 'sine'); // Victory sound
     trackEvent('Challenge', 'completed', dailyChallenge.name, dailyChallenge.progress);
 }
 
 function drawDailyChallenge() {
     if (!dailyChallenge.active) return;
 
-    const width = 260 * SCALE;
-    const height = 75 * SCALE;
-    const x = WIDTH - width - 10 * SCALE; // Position in top-right corner
-    const y = 10 * SCALE;
+    const width = 260;
+    const height = 75;
+    const x = WIDTH - width - 10; // Position in top-right corner
+    const y = 10;
 
     // Background
     ctx.fillStyle = 'rgba(255, 170, 0, 0.2)';
@@ -2818,13 +2574,13 @@ function drawDailyChallenge() {
 
     // Title
     ctx.fillStyle = '#ffaa00';
-    ctx.font = scaledFont(14, 'bold', '"Courier New"');
+    ctx.font = 'bold 14px "Courier New"';
     ctx.textAlign = 'left';
-    ctx.fillText('🏆 DAILY CHALLENGE', x + 10 * SCALE, y + 20 * SCALE);
+    ctx.fillText('🏆 DAILY CHALLENGE', x + 10, y + 20);
 
     // Challenge name
-    ctx.font = scaledFont(12, '', '"Courier New"');
-    ctx.fillText(dailyChallenge.name, x + 10 * SCALE, y + 38 * SCALE);
+    ctx.font = '12px "Courier New"';
+    ctx.fillText(dailyChallenge.name, x + 10, y + 38);
 
     // Progress
     const progressText = dailyChallenge.completed ?
@@ -2832,14 +2588,13 @@ function drawDailyChallenge() {
         `Progress: ${dailyChallenge.progress}/${dailyChallenge.target}`;
 
     ctx.fillStyle = dailyChallenge.completed ? '#00ff00' : '#ffffff';
-    ctx.fillText(progressText, x + 10 * SCALE, y + 56 * SCALE);
+    ctx.fillText(progressText, x + 10, y + 56);
 
     ctx.textAlign = 'center'; // Reset
 }
 
 // Update game state
 function update() {
-    if (!gameStarted) return; // Don't update until game is started
     if (paused) return;
     if (gameOver) return;
 
@@ -2940,7 +2695,7 @@ function update() {
             shipSpinSpeed = 0;
             shield = 100; // Reset shield
             player.x = WIDTH / 2;
-            player.y = HEIGHT - (60 * SCALE); // Reset Y position
+            player.y = HEIGHT - 60; // Reset Y position
             player.bullets = [];
             enemyGrenades = [];
             bossProjectiles = [];
@@ -2955,7 +2710,7 @@ function update() {
         if (levelCompleteTimer <= 0) {
             levelComplete = false;
             level++;
-            pumpkinSpeed += isMobile ? 0.15 : 0.25; // Slower progression for mobile
+            pumpkinSpeed += 0.25;
 
             // Initialize witch interval on level 4
             if (level === 4 && witchLevelInterval === 0) {
@@ -2985,88 +2740,11 @@ function update() {
     }
 
     // Move player
-    // Handle movement (keyboard or touch)
-    if (isMobile && touchControls.targetX !== null) {
-        // Mobile: smooth movement to touch position
-        const dx = touchControls.targetX - player.x;
-        const moveSpeed = player.speed * 2; // Faster movement on mobile for better responsiveness
-        if (Math.abs(dx) > moveSpeed) {
-            player.x += Math.sign(dx) * moveSpeed;
-        } else {
-            player.x = touchControls.targetX;
-        }
-        // Keep player in bounds
-        player.x = Math.max(30 * SCALE, Math.min(WIDTH - (30 * SCALE), player.x));
-    } else {
-        // Desktop: keyboard controls
-        const moveLeft = (keys[keyBindings.left] || touchControls.left) && player.x > (30 * SCALE);
-        const moveRight = (keys[keyBindings.right] || touchControls.right) && player.x < WIDTH - (30 * SCALE);
-
-        if (moveLeft) {
-            player.x -= player.speed;
-        }
-        if (moveRight) {
-            player.x += player.speed;
-        }
+    if (keys[keyBindings.left] && player.x > 30) {
+        player.x -= player.speed;
     }
-
-
-    // Auto-shoot on touch for mobile
-    if (isMobile && touchControls.shoot && !paused && !gameOver && !shipDestroying && !levelComplete) {
-        // Decrement cooldown
-        if (autoShootCooldown > 0) {
-            autoShootCooldown--;
-        }
-
-        // Shoot when cooldown reaches 0
-        // Calculate max bullets: 5 base, +2 per level starting at level 30
-        // Each clone adds 1 bullet, auto-shoot doubles the limit
-        const baseMaxBullets1 = level < 30 ? 5 : 5 + (2 * (level - 29));
-        const cloneBonus1 = cloneShips.length;
-        let maxBulletsMobile1 = baseMaxBullets1 + cloneBonus1;
-        if (activePowerUps.autoshoot.active) {
-            maxBulletsMobile1 *= 2;
-        }
-
-        const canMainShoot = autoShootCooldown <= 0 &&
-                            player.powerUp !== 'laser' &&
-                            player.bullets.length < maxBulletsMobile1;
-
-        const canCloneShoot = autoShootCooldown <= 0 &&
-                             player.bullets.length < maxBulletsMobile1;
-
-        if (canMainShoot) {
-            player.bullets.push({
-                x: player.x,
-                y: player.y - 20,
-                pierce: player.powerUp === 'pierceknife'
-            });
-        }
-
-        if (canCloneShoot) {
-            for (let clone of cloneShips) {
-                if (clone.powerUp !== 'laser' && player.bullets.length < maxBulletsMobile1) {
-                    player.bullets.push({
-                        x: clone.x,
-                        y: clone.y - 20,
-                        pierce: false
-                    });
-                }
-            }
-        }
-
-        if (canMainShoot || canCloneShoot) {
-            if (player.powerUp === 'pierceknife') {
-                playPierceSound();
-            } else {
-                playShootSound();
-            }
-
-            autoShootCooldown = 15; // Slower auto-shoot for mobile (about 4 shots/sec at 60fps)
-        }
-    } else if (isMobile && !touchControls.shoot) {
-        // Reset cooldown when not shooting so first shot is immediate
-        autoShootCooldown = 0;
+    if (keys[keyBindings.right] && player.x < WIDTH - 30) {
+        player.x += player.speed;
     }
 
     // Update bullets
@@ -3107,7 +2785,7 @@ function update() {
                     y: witch.y
                 };
 
-                return false; // Remove bullet
+                return true; // Remove bullet
             }
         }
 
@@ -3118,36 +2796,6 @@ function update() {
                 bullet.x < bigBoss.x + halfSize &&
                 bullet.y > bigBoss.y - halfSize &&
                 bullet.y < bigBoss.y + halfSize) {
-
-                // ARELLA teleportation dodge - increases as health decreases
-                if (bigBoss.isArella && !bigBoss.teleporting) {
-                    const healthPercent = ((bigBoss.maxDamage - bigBoss.damage) / bigBoss.maxDamage) * 100;
-                    let dodgeChance = 0.2; // Default: 1 in 5 (20%)
-
-                    if (healthPercent < 15) {
-                        dodgeChance = 0.5; // 1 in 2 (50%)
-                    } else if (healthPercent < 30) {
-                        dodgeChance = 0.33; // 1 in 3 (33%)
-                    } else if (healthPercent < 40) {
-                        dodgeChance = 0.25; // 1 in 4 (25%)
-                    }
-
-                    if (Math.random() < dodgeChance) {
-                        bigBoss.teleporting = true;
-                        bigBoss.teleportFrame = 0;
-                        // Teleport to random location - much wider range for more dramatic jumps
-                        bigBoss.targetX = (Math.random() * (WIDTH - 300)) + 150;
-                        bigBoss.targetY = HEIGHT * (0.1 + Math.random() * 0.4); // 10-50% down screen (wider vertical range)
-                        const healthRemaining = bigBoss.maxDamage - bigBoss.damage;
-                        if (healthRemaining <= 100) {
-                            const minSize = Math.min(bigBoss.minSize || bigBoss.baseSize * 2, bigBoss.maxSize || bigBoss.width);
-                            const maxSize = Math.max(bigBoss.minSize || bigBoss.baseSize * 2, bigBoss.maxSize || bigBoss.width);
-                            const newSize = minSize + Math.random() * (maxSize - minSize);
-                            bigBoss.pendingSize = newSize;
-                        }
-                        return true; // Bullet passes through during teleport
-                    }
-                }
 
                 // Calculate bullet damage based on level (BOSS LEVELS ONLY - every 3rd level: 3, 6, 9, 12, etc.)
                 // Base damage: 1
@@ -3162,6 +2810,7 @@ function update() {
                     // Pierce: base 5 damage + 2 per scaling tier (boss levels only)
                     const pierceDamage = 5 + (Math.floor((level - 10) / 5) * 2);
                     bigBoss.damage += level >= 10 ? pierceDamage : 5;
+                    playHitSound();
                 } else {
                     bigBoss.damage += bulletDamage;
                     playHitSound();
@@ -3247,7 +2896,7 @@ function update() {
 
                         // Boss splash damage
                         if (pumpkin.isBoss) {
-                            const splashRadius = 180 * SCALE; // 3 rows/columns at 60px spacing
+                            const splashRadius = 240; // 4 rows/columns at 60px spacing
                             for (let other of pumpkins) {
                                 if (other !== pumpkin && other.alive && !other.exploding) {
                                     const dx = other.x - pumpkin.x;
@@ -3282,12 +2931,12 @@ function update() {
     enemyGrenades = enemyGrenades.filter(grenade => {
         grenade.y += GRENADE_SPEED;
 
-        // Check if any ship has laser and can vaporize this grenade
-        const laserWidth = 16;
-        const grenadeSize = 10;
+        // Check collision with laser beam (player and clones)
+        if (activePowerUps.laser.active && !activePowerUps.pierceknife.active) {
+            const laserWidth = 16;
+            const grenadeSize = 10; // Grenade size
 
-        // Check player laser
-        if (player.powerUp === 'laser') {
+            // Check player laser
             const playerLaserX = player.x;
             if (grenade.x + grenadeSize / 2 > playerLaserX - laserWidth / 2 &&
                 grenade.x - grenadeSize / 2 < playerLaserX + laserWidth / 2 &&
@@ -3295,11 +2944,9 @@ function update() {
                 playExplosionSound(0.5);
                 return false; // Grenade destroyed by laser
             }
-        }
 
-        // Check clone lasers
-        for (let clone of cloneShips) {
-            if (clone.powerUp === 'laser') {
+            // Check clone lasers
+            for (let clone of cloneShips) {
                 const cloneLaserX = clone.x;
                 if (grenade.x + grenadeSize / 2 > cloneLaserX - laserWidth / 2 &&
                     grenade.x - grenadeSize / 2 < cloneLaserX + laserWidth / 2 &&
@@ -3334,18 +2981,7 @@ function update() {
             if (shield <= 0) {
                 shield = 0;
                 lives--;
-                deaths++; // Track deaths for survival challenge
                 cloneShips = []; // Remove all clones when a life is lost
-                powerUps = []; // Remove all power-ups when a life is lost
-                // Reset active power-ups
-                player.powerUp = null;
-                player.powerUpTimer = 0;
-                activePowerUps = {
-                    laser: { active: false, timer: 0 },
-                    clone: { active: false, timer: 0 },
-                    autoshoot: { active: false, timer: 0 },
-                    pierceknife: { active: false, timer: 0 }
-                };
                 if (lives <= 0) {
                     gameOver = true;
                     trackGameOver(score, level); // VIRAL FEATURE: Track game over (Section 11)
@@ -3377,12 +3013,12 @@ function update() {
         projectile.x += projectile.vx;
         projectile.y += projectile.vy;
 
-        // Check if any ship has laser and can vaporize this projectile
-        const laserWidth = 16;
-        const projectileSize = 20;
+        // Check collision with laser beam (player and clones)
+        if (activePowerUps.laser.active && !activePowerUps.pierceknife.active) {
+            const laserWidth = 16;
+            const projectileSize = 20; // Boss projectile size
 
-        // Check player laser
-        if (player.powerUp === 'laser') {
+            // Check player laser
             const playerLaserX = player.x;
             if (projectile.x + projectileSize / 2 > playerLaserX - laserWidth / 2 &&
                 projectile.x - projectileSize / 2 < playerLaserX + laserWidth / 2 &&
@@ -3390,11 +3026,9 @@ function update() {
                 playExplosionSound(0.7);
                 return false; // Projectile destroyed by laser
             }
-        }
 
-        // Check clone lasers
-        for (let clone of cloneShips) {
-            if (clone.powerUp === 'laser') {
+            // Check clone lasers
+            for (let clone of cloneShips) {
                 const cloneLaserX = clone.x;
                 if (projectile.x + projectileSize / 2 > cloneLaserX - laserWidth / 2 &&
                     projectile.x - projectileSize / 2 < cloneLaserX + laserWidth / 2 &&
@@ -3429,18 +3063,7 @@ function update() {
             if (shield <= 0) {
                 shield = 0;
                 lives--;
-                deaths++; // Track deaths for survival challenge
                 cloneShips = []; // Remove all clones when a life is lost
-                powerUps = []; // Remove all power-ups when a life is lost
-                // Reset active power-ups
-                player.powerUp = null;
-                player.powerUpTimer = 0;
-                activePowerUps = {
-                    laser: { active: false, timer: 0 },
-                    clone: { active: false, timer: 0 },
-                    autoshoot: { active: false, timer: 0 },
-                    pierceknife: { active: false, timer: 0 }
-                };
                 if (lives <= 0) {
                     gameOver = true;
                     trackGameOver(score, level); // VIRAL FEATURE: Track game over (Section 11)
@@ -3514,15 +3137,10 @@ function update() {
             } else if (powerUp.type === 'laser' || powerUp.type === 'pierceknife') {
                 // Handle laser/pierce power-up collection
                 collectWeaponPowerUp(powerUp.type);
-            } else {
-                // Timed power-ups (laser, autoshoot, pierceknife)
-                activePowerUps[powerUp.type].active = true;
-                activePowerUps[powerUp.type].timer = 600; // 10 seconds at 60fps
-
-                // Play laser sound when laser is activated
-                if (powerUp.type === 'laser') {
-                    playLaserSound();
-                }
+            } else if (powerUp.type === 'autoshoot') {
+                // Auto-shoot goes to main ship only
+                activePowerUps.autoshoot.active = true;
+                activePowerUps.autoshoot.timer = 600; // 10 seconds at 60fps
             }
 
             return false; // Remove power-up
@@ -3531,6 +3149,15 @@ function update() {
         return powerUp.y < HEIGHT; // Keep power-up if still on screen
     });
 
+    // Update power-up timers
+    // Update auto-shoot timer (only for main ship)
+    if (activePowerUps.autoshoot.active) {
+        activePowerUps.autoshoot.timer--;
+        if (activePowerUps.autoshoot.timer <= 0) {
+            activePowerUps.autoshoot.active = false;
+        }
+    }
+
     // Update main ship weapon timer
     if (player.powerUpTimer > 0) {
         player.powerUpTimer--;
@@ -3538,20 +3165,21 @@ function update() {
             const expiredPowerUp = player.powerUp;
             player.powerUp = null;
 
-            // When pierce expires, start cooldown
+            // When pierce expires, start cooldown and move laser to main ship if available
             if (expiredPowerUp === 'pierceknife') {
+                // Calculate cooldown based on level
                 let cooldownSeconds = 5;
                 if (level > 40) {
                     cooldownSeconds = Math.max(1, 5 - Math.floor((level - 40) / 5));
                 }
                 pierceCooldownTimer = cooldownSeconds * 60;
 
-                // Move laser from clones to main if available
+                // Check if any clone has laser - if so, move it to main ship
                 for (let clone of cloneShips) {
                     if (clone.powerUp === 'laser' && clone.powerUpTimer > 0) {
                         player.powerUp = 'laser';
                         player.powerUpTimer = clone.powerUpTimer;
-                        // Remove laser from all clones
+                        // Clear laser from all clones
                         for (let c of cloneShips) {
                             c.powerUp = null;
                             c.powerUpTimer = 0;
@@ -3570,14 +3198,6 @@ function update() {
             if (clone.powerUpTimer <= 0) {
                 clone.powerUp = null;
             }
-        }
-    }
-
-    // Update non-weapon power-up timers (autoshoot only now)
-    if (activePowerUps.autoshoot.active) {
-        activePowerUps.autoshoot.timer--;
-        if (activePowerUps.autoshoot.timer <= 0) {
-            activePowerUps.autoshoot.active = false;
         }
     }
 
@@ -3600,20 +3220,16 @@ function update() {
         clone.y = player.y;
     });
 
-    // Auto-shoot power-up (doesn't work with laser or pierce - manual weapons only)
-    const canAutoShoot = activePowerUps.autoshoot.active &&
-                         (player.powerUp !== 'laser') &&
-                         (player.powerUp !== 'pierceknife');
-
-    if (canAutoShoot) {
+    // Auto-shoot power-up (only for main ship)
+    if (activePowerUps.autoshoot.active) {
         autoShootCooldown--;
         // Calculate max bullets: 5 base, +2 per level starting at level 30
         // Each clone adds 1 bullet
-        const baseMaxBullets2 = level < 30 ? 5 : 5 + (2 * (level - 29));
-        const cloneBonus2 = cloneShips.length;
-        const maxBulletsMobile2 = (baseMaxBullets2 + cloneBonus2) * 2; // Auto-shoot gets 2x limit
-        if (autoShootCooldown <= 0 && player.bullets.length < maxBulletsMobile2) {
-            // Main ship auto-shoots (unless it has laser)
+        const baseMaxBullets = level < 30 ? 5 : 5 + (2 * (level - 29));
+        const cloneBonus = cloneShips.length;
+        const maxBullets = (baseMaxBullets + cloneBonus) * 2; // Auto-shoot gets 2x limit
+        if (autoShootCooldown <= 0 && player.bullets.length < maxBullets) {
+            // Main ship shoots (unless it has laser)
             if (player.powerUp !== 'laser') {
                 player.bullets.push({
                     x: player.x,
@@ -3624,11 +3240,11 @@ function update() {
 
             // Clone ships auto-shoot too (unless they have laser)
             for (let clone of cloneShips) {
-                if (clone.powerUp !== 'laser' && player.bullets.length < maxBulletsMobile2) {
+                if (clone.powerUp !== 'laser') {
                     player.bullets.push({
                         x: clone.x,
                         y: clone.y - 20,
-                        pierce: false
+                        pierce: false // Clones never get pierce, only laser
                     });
                 }
             }
@@ -3645,30 +3261,32 @@ function update() {
     }
 
     // Laser beam collision detection (continuous damage)
-    // Collect all ships that have laser
-    const laserShips = [];
+    // Collect all ships with active lasers
+    let laserShips = [];
     if (player.powerUp === 'laser') {
-        laserShips.push({ x: player.x, y: player.y });
+        laserShips.push(player);
     }
     for (let clone of cloneShips) {
         if (clone.powerUp === 'laser') {
-            laserShips.push({ x: clone.x, y: clone.y });
+            laserShips.push(clone);
         }
     }
 
-    for (let ship of laserShips) {
-        const laserX = ship.x;
+    if (laserShips.length > 0) {
         const laserWidth = 16;
-        let laserHittingSomething = false;
 
-        // Check collision with big boss
-        if (bigBossMode && bigBoss && bigBoss.alive && !bigBoss.exploding) {
-            const halfSize = bigBoss.width / 2;
-            if (laserX - laserWidth / 2 < bigBoss.x + halfSize &&
-                laserX + laserWidth / 2 > bigBoss.x - halfSize) {
+        for (let laserShip of laserShips) {
+            const laserX = laserShip.x;
+            let laserHittingSomething = false;
 
-                bigBoss.damage += 0.3; // Continuous damage
-                laserHittingSomething = true;
+            // Check collision with big boss
+            if (bigBossMode && bigBoss && bigBoss.alive && !bigBoss.exploding) {
+                const halfSize = bigBoss.width / 2;
+                if (laserX - laserWidth / 2 < bigBoss.x + halfSize &&
+                    laserX + laserWidth / 2 > bigBoss.x - halfSize) {
+
+                    bigBoss.damage += 0.3; // Continuous damage per laser
+                    laserHittingSomething = true;
 
                 if (bigBoss.damage >= bigBoss.maxDamage) {
                     bigBoss.exploding = true;
@@ -3740,7 +3358,7 @@ function update() {
 
                         // Boss splash damage
                         if (pumpkin.isBoss) {
-                            const splashRadius = 180 * SCALE; // 3 rows/columns at 60px spacing
+                            const splashRadius = 240; // 4 rows/columns at 60px spacing
                             for (let other of pumpkins) {
                                 if (other !== pumpkin && other.alive && !other.exploding) {
                                     const dx = other.x - pumpkin.x;
@@ -3759,16 +3377,18 @@ function update() {
             }
         }
 
-        // Control sizzle sound based on laser hits
-        if (laserHittingSomething) {
-            startSizzle();
-        } else {
+            // Control sizzle sound based on laser hits
+            if (laserHittingSomething) {
+                startSizzle();
+            }
+        } // end of laserShips loop
+
+        // Stop sizzle if no lasers hit anything
+        if (laserShips.length === 0 || !laserShips.some(ship => ship.powerUp === 'laser')) {
             stopSizzle();
         }
-    }
-
-    // Stop sizzle if no laser ships
-    if (laserShips.length === 0) {
+    } else {
+        // Stop sizzle if laser is not active
         stopSizzle();
     }
 
@@ -3776,8 +3396,8 @@ function update() {
     if (witch && witch.alive) {
         if (witch.hit) {
             // Witch flies away after being hit
-            witch.y -= 3 * SCALE;
-            if (witch.y < -100 * SCALE) {
+            witch.y -= 3;
+            if (witch.y < -100) {
                 witch.alive = false;
                 witch = null;
                 // Level continues with pumpkins
@@ -3787,10 +3407,10 @@ function update() {
             witch.x += witch.direction * witch.speed;
 
             // Reverse direction at edges and increment pass count
-            if (witch.x > WIDTH + 100 * SCALE) {
+            if (witch.x > WIDTH + 100) {
                 witch.direction = -1;
                 witch.passes++;
-            } else if (witch.x < -100 * SCALE && witch.passes > 0) {
+            } else if (witch.x < -100 && witch.passes > 0) {
                 witch.direction = 1;
                 witch.passes++;
             }
@@ -3806,7 +3426,7 @@ function update() {
 
     // Update extra life token
     if (extraLifeToken) {
-        extraLifeToken.y += 2 * SCALE;
+        extraLifeToken.y += 2;
 
         // Check collision with player
         let collected = false;
@@ -3814,7 +3434,7 @@ function update() {
         const playerDy = player.y - extraLifeToken.y;
         const playerDistance = Math.sqrt(playerDx * playerDx + playerDy * playerDy);
 
-        if (playerDistance < 30 * SCALE) {
+        if (playerDistance < 30) {
             collected = true;
         }
 
@@ -3825,7 +3445,7 @@ function update() {
                 const cloneDy = clone.y - extraLifeToken.y;
                 const cloneDistance = Math.sqrt(cloneDx * cloneDx + cloneDy * cloneDy);
 
-                if (cloneDistance < 30 * SCALE) {
+                if (cloneDistance < 30) {
                     collected = true;
                     break;
                 }
@@ -3840,7 +3460,7 @@ function update() {
         }
 
         // Remove if off screen
-        if (extraLifeToken && extraLifeToken.y > HEIGHT + 50 * SCALE) {
+        if (extraLifeToken && extraLifeToken.y > HEIGHT + 50) {
             extraLifeToken = null;
         }
     }
@@ -3861,14 +3481,9 @@ function update() {
                 for (let clone of cloneShips) {
                     clone.bullets = [];
                 }
-                // Reset weapon power-ups after boss levels
+                // Clear all power-ups
                 player.powerUp = null;
                 player.powerUpTimer = 0;
-                for (let clone of cloneShips) {
-                    clone.powerUp = null;
-                    clone.powerUpTimer = 0;
-                }
-                // Reset auto-shoot
                 activePowerUps.autoshoot.active = false;
                 activePowerUps.autoshoot.timer = 0;
                 autoShootCooldown = 0;
@@ -3877,39 +3492,13 @@ function update() {
                 stopSpookyMusic();
             }
         } else if (bigBoss.alive) {
-            // Handle ARELLA teleportation
-            if (bigBoss.isArella && bigBoss.teleporting) {
-                bigBoss.teleportFrame++;
-                if (bigBoss.teleportFrame === 15) {
-                    // Mid-teleport - move to new position
-                    bigBoss.x = bigBoss.targetX;
-                    bigBoss.y = bigBoss.targetY;
-                }
-                if (bigBoss.teleportFrame >= 30) {
-                    // Teleport complete
-                    bigBoss.teleporting = false;
-                    bigBoss.teleportFrame = 0;
-                    if (bigBoss.pendingSize && bigBoss.isArella) {
-                        bigBoss.width = bigBoss.pendingSize;
-                        bigBoss.height = bigBoss.pendingSize;
-                        bigBoss.pendingSize = null;
-                    }
-                }
-            }
+            // Big boss moves slowly side to side and up/down
+            const time = Date.now() / 1000;
+            bigBoss.x += Math.sin(time) * 2;
+            bigBoss.y += Math.sin(time * 0.7) * 0.8; // Slower vertical oscillation
 
-            // Big boss moves slowly side to side and up/down (when not teleporting)
-            if (!bigBoss.teleporting) {
-                const time = Date.now() / 1000;
-                bigBoss.x += Math.sin(time) * 2;
-                bigBoss.y += Math.sin(time * 0.7) * 0.8; // Slower vertical oscillation
-
-                // Clamp boss position - can only go halfway off screen horizontally
-                const halfBossWidth = bigBoss.width / 2;
-                bigBoss.x = Math.max(halfBossWidth, Math.min(WIDTH - halfBossWidth, bigBoss.x));
-
-                // Clamp vertical position to stay in upper half
-                bigBoss.y = Math.max(150 * SCALE, Math.min(bigBoss.y, 350 * SCALE));
-            }
+            // Clamp vertical position to stay in upper half
+            bigBoss.y = Math.max(150, Math.min(bigBoss.y, 350));
 
             // Big boss shooting (gets faster at higher levels)
             bigBoss.shootCooldown--;
@@ -3928,21 +3517,10 @@ function update() {
             }
 
             // Check if big boss reached player
-            if (bigBoss.y >= HEIGHT - (200 * SCALE)) {
+            if (bigBoss.y >= HEIGHT - 200) {
                 shield = 0;
                 lives--;
-                deaths++; // Track deaths for survival challenge
                 cloneShips = []; // Remove all clones when a life is lost
-                powerUps = []; // Remove all power-ups when a life is lost
-                // Reset active power-ups
-                player.powerUp = null;
-                player.powerUpTimer = 0;
-                activePowerUps = {
-                    laser: { active: false, timer: 0 },
-                    clone: { active: false, timer: 0 },
-                    autoshoot: { active: false, timer: 0 },
-                    pierceknife: { active: false, timer: 0 }
-                };
                 if (lives <= 0) {
                     gameOver = true;
                     trackGameOver(score, level); // VIRAL FEATURE: Track game over (Section 11)
@@ -3975,9 +3553,7 @@ function update() {
 
                 pumpkin.x += pumpkinDirection * pumpkinSpeed;
 
-                // Edge detection with proper margins
-                const edgeMargin = PUMPKIN_SIZE / 2 + (10 * SCALE); // Half pumpkin size plus scaled buffer
-                if (pumpkin.x <= edgeMargin || pumpkin.x >= WIDTH - edgeMargin) {
+                if (pumpkin.x <= 50 || pumpkin.x >= WIDTH - 50) {
                     hitEdge = true;
                 }
 
@@ -3994,7 +3570,7 @@ function update() {
                 }
 
                 // Check if pumpkin reached bottom
-                if (pumpkin.y >= HEIGHT - (100 * SCALE)) {
+                if (pumpkin.y >= HEIGHT - 100) {
                     // Mark all pumpkins as exploding to clear the level
                     for (let p of pumpkins) {
                         if (p.alive) {
@@ -4005,18 +3581,7 @@ function update() {
 
                     shield = 0;
                     lives--;
-                    deaths++; // Track deaths for survival challenge
                     cloneShips = []; // Remove all clones when a life is lost
-                    powerUps = []; // Remove all power-ups when a life is lost
-                    // Reset active power-ups
-                    player.powerUp = null;
-                    player.powerUpTimer = 0;
-                    activePowerUps = {
-                        laser: { active: false, timer: 0 },
-                        clone: { active: false, timer: 0 },
-                        autoshoot: { active: false, timer: 0 },
-                        pierceknife: { active: false, timer: 0 }
-                    };
                     if (lives <= 0) {
                         gameOver = true;
                     } else {
@@ -4051,7 +3616,7 @@ function update() {
             if (witch && witch.alive) {
                 witch.alive = false;
                 witch = null;
-                extraLifeToken = null; // Remove any dropped token
+                // Keep extraLifeToken - it persists through level changes
             }
 
             // Clear all bullets to prevent damaging next level's enemies
@@ -4071,10 +3636,9 @@ function update() {
 
 // Draw everything
 function draw() {
-    try {
-        ctx.save();
-
-        // Apply screen shake (only when not paused)
+    ctx.save();
+    
+    // Apply screen shake (only when not paused)
     if (screenShake > 0 && !paused && !showSettings) {
         const shakeX = (Math.random() - 0.5) * screenShake;
         const shakeY = (Math.random() - 0.5) * screenShake;
@@ -4107,55 +3671,14 @@ function draw() {
     // Draw score in center (behind everything)
     if (!gameOver && !shipDestroying) {
         ctx.save();
-        ctx.font = `bold ${48 * SCALE}px "Courier New", monospace`;
+        ctx.font = 'bold 48px "Courier New", monospace';
         ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
         ctx.textAlign = 'center';
-        ctx.fillText('Score: ' + score, WIDTH / 2, 50 * SCALE);
+        ctx.fillText('Score: ' + score, WIDTH / 2, 50);
         ctx.restore();
     }
 
     // Draw game objects
-
-    // Draw shield bar at very bottom (behind ships in visual layer)
-    if (!shipDestroying && !gameOver) {
-        const barWidth = 150;
-        const barHeight = 15;
-        const barX = WIDTH / 2 - barWidth / 2;
-        const barY = HEIGHT - 25; // Very bottom of play area
-        const shieldPercent = shield / 100;
-
-        // Semi-transparent background
-        ctx.fillStyle = 'rgba(34, 34, 34, 0.6)';
-        ctx.fillRect(barX, barY, barWidth, barHeight);
-
-        // Smooth color gradient based on shield level (semi-transparent)
-        let shieldColor;
-        if (shield > 75) {
-            shieldColor = 'rgba(0, 255, 0, 0.7)'; // Green
-        } else if (shield > 50) {
-            shieldColor = 'rgba(136, 255, 0, 0.7)'; // Yellow-green
-        } else if (shield > 33) {
-            shieldColor = 'rgba(255, 170, 0, 0.7)'; // Orange
-        } else if (shield > 15) {
-            shieldColor = 'rgba(255, 102, 0, 0.7)'; // Dark orange
-        } else {
-            shieldColor = 'rgba(255, 0, 0, 0.7)'; // Red
-        }
-
-        ctx.fillStyle = shieldColor;
-        ctx.fillRect(barX, barY, barWidth * shieldPercent, barHeight);
-
-        // Semi-transparent border
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(barX, barY, barWidth, barHeight);
-
-        // Semi-transparent text
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.font = scaledFont(12);
-        ctx.textAlign = 'center';
-        ctx.fillText('SHIELD: ' + Math.floor(shield), WIDTH / 2, barY + 12);
-    }
 
     // Draw ship or destruction
     if (shipDestroying) {
@@ -4205,13 +3728,13 @@ function draw() {
             ctx.strokeRect(barX, barY, barWidth, barHeight);
 
             ctx.fillStyle = '#ffffff';
-            ctx.font = scaledFont(16, 'bold');
+            ctx.font = 'bold 16px Arial';
             ctx.textAlign = 'center';
             ctx.shadowColor = bigBoss.color;
             ctx.shadowBlur = 10;
             ctx.fillText(bigBoss.name.toUpperCase(), WIDTH / 2, barY - 10);
             ctx.shadowBlur = 0;
-            ctx.font = scaledFont(14);
+            ctx.font = '14px Arial';
             ctx.fillText(`${Math.floor(healthRemaining)} / ${bigBoss.maxDamage}`, WIDTH / 2, barY + 15);
         }
     } else {
@@ -4221,20 +3744,20 @@ function draw() {
     }
 
     // Draw lasers ON TOP of pumpkins so they burn into them
-    // Collect all ships that have laser
-    const laserShipsForDrawing = [];
+    // Collect all ships with active lasers
+    let laserDrawShips = [];
     if (player.powerUp === 'laser') {
-        laserShipsForDrawing.push({ x: player.x, y: player.y });
+        laserDrawShips.push(player);
     }
     for (let clone of cloneShips) {
         if (clone.powerUp === 'laser') {
-            laserShipsForDrawing.push({ x: clone.x, y: clone.y });
+            laserDrawShips.push(clone);
         }
     }
 
-    if (laserShipsForDrawing.length > 0) {
+    if (laserDrawShips.length > 0) {
         // Draw laser burn effects on pumpkins first
-        const laserPositions = laserShipsForDrawing.map(ship => ship.x);
+        const laserPositions = laserDrawShips.map(ship => ship.x);
 
         // Add burning glow to pumpkins being hit by laser
         if (bigBossMode && bigBoss && bigBoss.alive && !bigBoss.exploding) {
@@ -4281,7 +3804,7 @@ function draw() {
         }
 
         // Now draw the lasers on top
-        for (let ship of laserShipsForDrawing) {
+        for (let ship of laserDrawShips) {
             drawLaser(ship.x, ship.y);
         }
     }
@@ -4302,13 +3825,51 @@ function draw() {
         drawPowerUp(powerUp);
     }
 
+    // Draw shield bar at bottom
+    if (!shipDestroying) {
+        const barWidth = 150;
+        const barHeight = 15;
+        const barX = WIDTH / 2 - barWidth / 2;
+        const barY = HEIGHT - 30;
+        const shieldPercent = shield / 100;
+
+        ctx.fillStyle = '#222222';
+        ctx.fillRect(barX, barY, barWidth, barHeight);
+
+        // Smooth color gradient based on shield level
+        let shieldColor;
+        if (shield > 75) {
+            shieldColor = '#00ff00'; // Green
+        } else if (shield > 50) {
+            shieldColor = '#88ff00'; // Yellow-green
+        } else if (shield > 33) {
+            shieldColor = '#ffaa00'; // Orange
+        } else if (shield > 15) {
+            shieldColor = '#ff6600'; // Dark orange
+        } else {
+            shieldColor = '#ff0000'; // Red
+        }
+        
+        ctx.fillStyle = shieldColor;
+        ctx.fillRect(barX, barY, barWidth * shieldPercent, barHeight);
+
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(barX, barY, barWidth, barHeight);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('SHIELD: ' + Math.floor(shield), WIDTH / 2, barY + 12);
+    }
+
     // Draw power-up indicators panel
     const panelX = 10;
     const panelY = 10;
     const panelItemHeight = 28;
     let panelHeight = 0;
 
-    // Count active power-ups (per-ship basis)
+    // Count active power-ups (now tracking per-ship)
     let activeCount = 0;
     if (player.powerUp === 'laser') activeCount++;
     if (player.powerUp === 'pierceknife') activeCount++;
@@ -4321,29 +3882,22 @@ function draw() {
 
         // Panel background
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(panelX, panelY, 180, panelHeight);
+        ctx.fillRect(panelX, panelY, 160, panelHeight);
         ctx.strokeStyle = '#00ff00';
         ctx.lineWidth = 2;
-        ctx.strokeRect(panelX, panelY, 180, panelHeight);
+        ctx.strokeRect(panelX, panelY, 160, panelHeight);
 
         let itemY = panelY + 20;
 
         // Main ship laser indicator
         if (player.powerUp === 'laser') {
-            const timeLeft = Math.ceil(player.powerUpTimer / 60);
-
             ctx.fillStyle = '#00ffff';
-            ctx.font = scaledFont(14, 'bold');
+            ctx.font = 'bold 14px Arial';
             ctx.textAlign = 'left';
             ctx.fillText('⚡ LASER (Main)', panelX + 10, itemY);
 
-            ctx.fillStyle = '#ffffff';
-            ctx.font = scaledFont(12);
-            ctx.textAlign = 'right';
-            ctx.fillText(timeLeft + 's', panelX + 170, itemY);
-
             // Time bar
-            const barWidth = 150;
+            const barWidth = 130;
             const barX = panelX + 15;
             const barY = itemY + 3;
             const timePercent = player.powerUpTimer / 600;
@@ -4359,55 +3913,20 @@ function draw() {
         // Clone laser indicator
         const laserClones = cloneShips.filter(c => c.powerUp === 'laser');
         if (laserClones.length > 0) {
-            const timeLeft = Math.ceil(laserClones[0].powerUpTimer / 60);
-
-            ctx.fillStyle = '#00ff88';
-            ctx.font = scaledFont(14, 'bold');
+            ctx.fillStyle = '#00ffaa';
+            ctx.font = 'bold 14px Arial';
             ctx.textAlign = 'left';
             ctx.fillText('⚡ LASER (Clones)', panelX + 10, itemY);
 
-            ctx.fillStyle = '#ffffff';
-            ctx.font = scaledFont(12);
-            ctx.textAlign = 'right';
-            ctx.fillText(timeLeft + 's', panelX + 170, itemY);
-
-            // Time bar
-            const barWidth = 150;
+            // Time bar (use first clone's timer)
+            const barWidth = 130;
             const barX = panelX + 15;
             const barY = itemY + 3;
             const timePercent = laserClones[0].powerUpTimer / 600;
 
             ctx.fillStyle = '#003333';
             ctx.fillRect(barX, barY, barWidth, 4);
-            ctx.fillStyle = '#00ff88';
-            ctx.fillRect(barX, barY, barWidth * timePercent, 4);
-
-            itemY += panelItemHeight;
-        }
-
-        // Pierce knife indicator
-        if (player.powerUp === 'pierceknife') {
-            const timeLeft = Math.ceil(player.powerUpTimer / 60);
-
-            ctx.fillStyle = '#ff00ff';
-            ctx.font = scaledFont(14, 'bold');
-            ctx.textAlign = 'left';
-            ctx.fillText('🔪 PIERCE', panelX + 10, itemY);
-
-            ctx.fillStyle = '#ffffff';
-            ctx.font = scaledFont(12);
-            ctx.textAlign = 'right';
-            ctx.fillText(timeLeft + 's', panelX + 170, itemY);
-
-            // Time bar
-            const barWidth = 150;
-            const barX = panelX + 15;
-            const barY = itemY + 3;
-            const timePercent = player.powerUpTimer / 600;
-
-            ctx.fillStyle = '#330033';
-            ctx.fillRect(barX, barY, barWidth, 4);
-            ctx.fillStyle = '#ff00ff';
+            ctx.fillStyle = '#00ffaa';
             ctx.fillRect(barX, barY, barWidth * timePercent, 4);
 
             itemY += panelItemHeight;
@@ -4416,34 +3935,27 @@ function draw() {
         // Clone indicator
         if (cloneShips.length > 0) {
             ctx.fillStyle = '#00ff88';
-            ctx.font = scaledFont(14, 'bold');
+            ctx.font = 'bold 14px Arial';
             ctx.textAlign = 'left';
             ctx.fillText('🦇 CLONES', panelX + 10, itemY);
 
             ctx.fillStyle = '#ffffff';
-            ctx.font = scaledFont(12);
+            ctx.font = '12px Arial';
             ctx.textAlign = 'right';
-            ctx.fillText('x' + cloneShips.length, panelX + 170, itemY);
+            ctx.fillText('x' + cloneShips.length, panelX + 150, itemY);
 
             itemY += panelItemHeight;
         }
 
         // Auto-shoot indicator
         if (activePowerUps.autoshoot.active) {
-            const timeLeft = Math.ceil(activePowerUps.autoshoot.timer / 60);
-
             ctx.fillStyle = '#ffaa00';
-            ctx.font = scaledFont(14, 'bold');
+            ctx.font = 'bold 14px Arial';
             ctx.textAlign = 'left';
             ctx.fillText('🔫 AUTO', panelX + 10, itemY);
 
-            ctx.fillStyle = '#ffffff';
-            ctx.font = scaledFont(12);
-            ctx.textAlign = 'right';
-            ctx.fillText(timeLeft + 's', panelX + 170, itemY);
-
             // Time bar
-            const barWidth = 150;
+            const barWidth = 130;
             const barX = panelX + 15;
             const barY = itemY + 3;
             const timePercent = activePowerUps.autoshoot.timer / 600;
@@ -4451,6 +3963,27 @@ function draw() {
             ctx.fillStyle = '#332200';
             ctx.fillRect(barX, barY, barWidth, 4);
             ctx.fillStyle = '#ffaa00';
+            ctx.fillRect(barX, barY, barWidth * timePercent, 4);
+
+            itemY += panelItemHeight;
+        }
+
+        // Pierce knife indicator (main ship only)
+        if (player.powerUp === 'pierceknife') {
+            ctx.fillStyle = '#ff00ff';
+            ctx.font = 'bold 14px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText('🔪 PIERCE', panelX + 10, itemY);
+
+            // Time bar
+            const barWidth = 130;
+            const barX = panelX + 15;
+            const barY = itemY + 3;
+            const timePercent = player.powerUpTimer / 600;
+
+            ctx.fillStyle = '#330033';
+            ctx.fillRect(barX, barY, barWidth, 4);
+            ctx.fillStyle = '#ff00ff';
             ctx.fillRect(barX, barY, barWidth * timePercent, 4);
 
             itemY += panelItemHeight;
@@ -4463,14 +3996,14 @@ function draw() {
         ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
         ctx.fillStyle = '#00ff00';
-        ctx.font = scaledFont(50, 'bold');
+        ctx.font = 'bold 50px Arial';
         ctx.textAlign = 'center';
         ctx.shadowColor = '#00ff00';
-        ctx.shadowBlur = 20 * SCALE;
+        ctx.shadowBlur = 20;
 
         // Split message into lines and draw each one
         const lines = levelCompleteMessage.split('\n');
-        const lineHeight = 60 * SCALE;
+        const lineHeight = 60;
         const startY = HEIGHT / 2 - ((lines.length - 1) * lineHeight / 2);
 
         for (let i = 0; i < lines.length; i++) {
@@ -4486,50 +4019,62 @@ function draw() {
         ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
         ctx.fillStyle = '#00ff00';
-        ctx.font = scaledFont(40, 'bold');
+        ctx.font = 'bold 40px Arial';
         ctx.textAlign = 'center';
         ctx.shadowColor = '#00ff00';
-        ctx.shadowBlur = 15 * SCALE;
-        ctx.fillText('TOP 100 HIGH SCORES', WIDTH / 2, 50);
+        ctx.shadowBlur = 15;
+        ctx.fillText('TOP HIGH SCORES', WIDTH / 2, 50);
         ctx.shadowBlur = 0;
 
-        // Display high scores in two columns
-        ctx.font = scaledFont(16);
-        const startY = 90;
-        const columnWidth = WIDTH / 2;
+        // Separate scores by platform
+        const desktopScores = highScores.filter(s => !s.platform || s.platform === 'desktop').slice(0, 25);
+        const mobileScores = highScores.filter(s => s.platform === 'mobile').slice(0, 25);
 
-        for (let i = 0; i < Math.min(50, highScores.length); i++) {
+        // Display high scores in two columns: Desktop and Mobile
+        const columnWidth = WIDTH / 2;
+        const startY = 110;
+
+        // Desktop column header
+        ctx.fillStyle = '#00ffff';
+        ctx.font = 'bold 24px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('DESKTOP', columnWidth / 2, 90);
+
+        // Mobile column header
+        ctx.fillText('MOBILE', columnWidth + columnWidth / 2, 90);
+
+        ctx.font = '16px Arial';
+
+        // Desktop scores
+        for (let i = 0; i < desktopScores.length; i++) {
             const x = columnWidth / 2;
             const y = startY + (i * 20);
             const rank = i + 1;
 
             ctx.fillStyle = rank <= 3 ? '#ffaa00' : '#ffffff';
             ctx.textAlign = 'left';
-            ctx.fillText(`${rank}. ${highScores[i].name}`, x + 20, y);
+            ctx.fillText(`${rank}. ${desktopScores[i].name}`, x - 150, y);
             ctx.textAlign = 'right';
-            ctx.fillText(highScores[i].score, x + columnWidth - 40, y);
+            ctx.fillText(desktopScores[i].score, x + 150, y);
         }
 
-        for (let i = 50; i < Math.min(100, highScores.length); i++) {
+        // Mobile scores
+        for (let i = 0; i < mobileScores.length; i++) {
             const x = columnWidth + columnWidth / 2;
-            const y = startY + ((i - 50) * 20);
+            const y = startY + (i * 20);
             const rank = i + 1;
 
-            ctx.fillStyle = '#ffffff';
+            ctx.fillStyle = rank <= 3 ? '#ffaa00' : '#ffffff';
             ctx.textAlign = 'left';
-            ctx.fillText(`${rank}. ${highScores[i].name}`, x + 20, y);
+            ctx.fillText(`${rank}. ${mobileScores[i].name}`, x - 150, y);
             ctx.textAlign = 'right';
-            ctx.fillText(highScores[i].score, x + columnWidth - 40, y);
+            ctx.fillText(mobileScores[i].score, x + 150, y);
         }
 
         ctx.fillStyle = '#ffaa00';
-        ctx.font = scaledFont(20);
+        ctx.font = '20px Arial';
         ctx.textAlign = 'center';
-        if (isMobile) {
-            ctx.fillText('Tap to play again', WIDTH / 2, HEIGHT - 20);
-        } else {
-            ctx.fillText('Press ESC to return', WIDTH / 2, HEIGHT - 20);
-        }
+        ctx.fillText('Press ESC to return', WIDTH / 2, HEIGHT - 20);
     }
 
     // Name entry screen
@@ -4538,33 +4083,33 @@ function draw() {
         ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
         ctx.fillStyle = '#00ff00';
-        ctx.font = scaledFont(50, 'bold');
+        ctx.font = 'bold 50px Arial';
         ctx.textAlign = 'center';
         ctx.shadowColor = '#00ff00';
-        ctx.shadowBlur = 20 * SCALE;
+        ctx.shadowBlur = 20;
         ctx.fillText('NEW HIGH SCORE!', WIDTH / 2, HEIGHT / 2 - 100);
         ctx.shadowBlur = 0;
 
         ctx.fillStyle = '#ffffff';
-        ctx.font = scaledFont(35);
+        ctx.font = '35px Arial';
         ctx.fillText('Score: ' + score, WIDTH / 2, HEIGHT / 2 - 40);
 
         ctx.fillStyle = '#ffaa00';
-        ctx.font = scaledFont(25);
+        ctx.font = '25px Arial';
         ctx.fillText('Enter your name:', WIDTH / 2, HEIGHT / 2 + 10);
 
         // Draw input box
         ctx.strokeStyle = '#00ff00';
-        ctx.lineWidth = 3 * SCALE;
-        ctx.strokeRect(WIDTH / 2 - (150 * SCALE), HEIGHT / 2 + (30 * SCALE), 300 * SCALE, 50 * SCALE);
+        ctx.lineWidth = 3;
+        ctx.strokeRect(WIDTH / 2 - 150, HEIGHT / 2 + 30, 300, 50);
 
         // Draw player name
         ctx.fillStyle = '#ffffff';
-        ctx.font = scaledFont(30, 'bold');
+        ctx.font = 'bold 30px Arial';
         ctx.fillText(playerName + '_', WIDTH / 2, HEIGHT / 2 + 65);
 
         ctx.fillStyle = '#ffaa00';
-        ctx.font = scaledFont(18);
+        ctx.font = '18px Arial';
         ctx.fillText('Press ENTER when done (max 15 characters)', WIDTH / 2, HEIGHT / 2 + 120);
     }
 
@@ -4588,10 +4133,10 @@ function draw() {
             ctx.fillStyle = 'rgba(139, 0, 255, 0.3)';
             ctx.fillRect(0, HEIGHT - 100, WIDTH, 40);
             ctx.fillStyle = '#8b00ff';
-            ctx.font = scaledFont(24, 'bold');
+            ctx.font = 'bold 24px Arial';
             ctx.textAlign = 'center';
             ctx.shadowColor = '#8b00ff';
-            ctx.shadowBlur = 15 * SCALE;
+            ctx.shadowBlur = 15;
             ctx.fillText('⚠️ NEXT: ' + nextBossName.toUpperCase(), WIDTH / 2, HEIGHT - 70);
             ctx.shadowBlur = 0;
         }
@@ -4609,7 +4154,7 @@ function draw() {
     // Draw combo counter
     if (combo > 1 && !paused && !gameOver) {
         ctx.fillStyle = '#ffff00';
-        ctx.font = scaledFont(30, 'bold');
+        ctx.font = 'bold 30px Arial';
         ctx.textAlign = 'center';
         ctx.shadowColor = '#ffff00';
         ctx.shadowBlur = 10;
@@ -4623,41 +4168,41 @@ function draw() {
         ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
         ctx.fillStyle = '#00ff00';
-        ctx.font = scaledFont(40, 'bold');
+        ctx.font = 'bold 40px Arial';
         ctx.textAlign = 'center';
         ctx.shadowColor = '#00ff00';
-        ctx.shadowBlur = 15 * SCALE;
+        ctx.shadowBlur = 15;
         ctx.fillText('SETTINGS', WIDTH / 2, 80);
         ctx.shadowBlur = 0;
 
-        ctx.font = scaledFont(24);
+        ctx.font = '24px Arial';
         ctx.fillStyle = '#ffffff';
         let y = 150;
 
         ctx.fillText('Difficulty: ' + difficulty.toUpperCase(), WIDTH / 2, y);
         ctx.fillStyle = '#ffaa00';
-        ctx.font = scaledFont(18);
+        ctx.font = '18px Arial';
         ctx.fillText('(Press D to change)', WIDTH / 2, y + 25);
         y += 80;
 
         ctx.fillStyle = '#ffffff';
-        ctx.font = scaledFont(24);
+        ctx.font = '24px Arial';
         ctx.fillText('Volume: ' + Math.round(volume * 100) + '%', WIDTH / 2, y);
         ctx.fillStyle = '#ffaa00';
-        ctx.font = scaledFont(18);
+        ctx.font = '18px Arial';
         ctx.fillText('(Press +/- to adjust)', WIDTH / 2, y + 25);
         y += 80;
 
         ctx.fillStyle = '#ffffff';
-        ctx.font = scaledFont(24);
+        ctx.font = '24px Arial';
         ctx.fillText('Colorblind Mode: ' + (colorblindMode ? 'ON' : 'OFF'), WIDTH / 2, y);
         ctx.fillStyle = '#ffaa00';
-        ctx.font = scaledFont(18);
+        ctx.font = '18px Arial';
         ctx.fillText('(Press C to toggle)', WIDTH / 2, y + 25);
         y += 100;
 
         ctx.fillStyle = '#ffaa00';
-        ctx.font = scaledFont(20);
+        ctx.font = '20px Arial';
         ctx.fillText('Press S to close settings', WIDTH / 2, y);
     }
 
@@ -4667,14 +4212,14 @@ function draw() {
         ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
         ctx.fillStyle = '#00ff00';
-        ctx.font = scaledFont(60, 'bold');
+        ctx.font = 'bold 60px Arial';
         ctx.textAlign = 'center';
         ctx.shadowColor = '#00ff00';
-        ctx.shadowBlur = 20 * SCALE;
+        ctx.shadowBlur = 20;
         ctx.fillText('PAUSED', WIDTH / 2, HEIGHT / 2 - 30);
         ctx.shadowBlur = 0;
 
-        ctx.font = scaledFont(25);
+        ctx.font = '25px Arial';
         ctx.fillStyle = '#ffffff';
         ctx.fillText('Press P to resume', WIDTH / 2, HEIGHT / 2 + 30);
         ctx.fillText('Press S for Settings', WIDTH / 2, HEIGHT / 2 + 70);
@@ -4682,336 +4227,11 @@ function draw() {
 
     // Game over screen
     if (gameOver && !enteringName && !showHighScores) {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(0, 0, WIDTH, HEIGHT);
-
-        ctx.fillStyle = '#ff6600';
-        ctx.font = scaledFont(60, 'bold');
-        ctx.textAlign = 'center';
-        ctx.fillText('GAME OVER', WIDTH / 2, HEIGHT / 2 - 30);
-
-        ctx.font = scaledFont(30);
-        ctx.fillText('Final Score: ' + score, WIDTH / 2, HEIGHT / 2 + 30);
-
-        if (isMobile) {
-            ctx.font = scaledFont(25);
-            ctx.fillStyle = '#ffaa00';
-            ctx.fillText('Tap to continue', WIDTH / 2, HEIGHT / 2 + 90);
-        } else {
-            ctx.font = scaledFont(20);
-            ctx.fillText('Press ENTER to restart', WIDTH / 2, HEIGHT / 2 + 80);
-            ctx.fillText('Press H to view High Scores', WIDTH / 2, HEIGHT / 2 + 110);
-        }
+        drawGameOver();
     }
 
-    // Draw touch control UI for mobile - show movement indicator
-    if (isMobile && !paused && !gameOver && touchControls.targetX !== null) {
-        ctx.globalAlpha = 0.3;
-        ctx.fillStyle = '#00ff00';
-        ctx.beginPath();
-        ctx.arc(touchControls.targetX, HEIGHT - (40 * SCALE), 30 * SCALE, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Draw arrow pointing to ship
-        ctx.globalAlpha = 0.6;
-        ctx.fillStyle = '#00ff00';
-        ctx.font = scaledFont(40, 'bold');
-        ctx.textAlign = 'center';
-        ctx.fillText('▲', touchControls.targetX, HEIGHT - (25 * SCALE));
-
-        ctx.globalAlpha = 1.0;
-    }
-
-    // Draw start/pause button overlay
-    if (!gameStarted || (paused && !showSettings && !gameOver)) {
-        // Semi-transparent dark overlay
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(0, 0, WIDTH, HEIGHT);
-
-        // Draw pumpkin-shaped button in center
-        const buttonCenterX = WIDTH / 2;
-        const buttonCenterY = HEIGHT / 2;
-        const pumpkinSize = 100;
-
-        // Pumpkin body (orange circle)
-        ctx.fillStyle = '#ff8800';
-        ctx.beginPath();
-        ctx.arc(buttonCenterX, buttonCenterY, pumpkinSize, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Pumpkin ridges
-        ctx.strokeStyle = '#ff6600';
-        ctx.lineWidth = 3;
-        for (let i = -2; i <= 2; i++) {
-            ctx.beginPath();
-            ctx.moveTo(buttonCenterX + (i * 21), buttonCenterY - pumpkinSize);
-            ctx.lineTo(buttonCenterX + (i * 21), buttonCenterY + pumpkinSize);
-            ctx.stroke();
-        }
-
-        // Pumpkin stem
-        ctx.fillStyle = '#228b22';
-        ctx.fillRect(buttonCenterX - 12, buttonCenterY - pumpkinSize - 18, 24, 20);
-
-        // Button text centered on the pumpkin with strong black shadow
-        ctx.fillStyle = '#ffffff';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.shadowColor = '#000000';
-        ctx.shadowBlur = 4;
-        ctx.shadowOffsetX = 2;
-        ctx.shadowOffsetY = 2;
-
-        if (!gameStarted) {
-            ctx.font = scaledFont(72, 'bold'); // Tripled from 24
-            ctx.fillText('CARVE', buttonCenterX, buttonCenterY - 25);
-            ctx.fillText('PUMPKINS!', buttonCenterX, buttonCenterY + 35);
-        } else if (paused) {
-            ctx.font = scaledFont(54, 'bold'); // Tripled from 18
-            ctx.fillText('PAUSED', buttonCenterX, buttonCenterY - 35);
-            ctx.font = scaledFont(66, 'bold'); // Tripled from 22
-            ctx.fillText('CARVE', buttonCenterX, buttonCenterY + 10);
-            ctx.fillText('PUMPKINS!', buttonCenterX, buttonCenterY + 55);
-        }
-
-        ctx.shadowBlur = 0;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 0;
-        ctx.textBaseline = 'alphabetic'; // Reset to default
-    }
-
-    } catch (error) {
-        console.error('Draw function error:', error);
-    } finally {
-        // Always restore canvas state
-        ctx.restore();
-    }
+    ctx.restore();
 }
-
-
-// Touch controls for mobile - Multi-touch support
-if (isMobile) {
-    // Canvas is now only for movement control - entire canvas can be used
-    canvas.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        const rect = canvas.getBoundingClientRect();
-
-        // Handle start button tap
-        if (!gameStarted || (paused && !showSettings && !gameOver)) {
-            handleStartOrResumeInput();
-            return;
-        }
-
-        // Handle high scores dismissal - show start button instead of auto-restart
-        if (showHighScores) {
-            showHighScores = false;
-            gameOver = false; // End game over state
-            gameStarted = false; // Show start button
-            return;
-        }
-
-        // Handle game over tap to continue
-        if (gameOver && !enteringName && !showHighScores) {
-            // Check if this is a high score
-            if (isHighScore(score)) {
-                // Use native prompt for mobile name entry
-                const name = prompt('NEW HIGH SCORE!\nScore: ' + score + '\n\nEnter your name:', '');
-                if (name !== null) { // Allow empty string
-                    playerName = name.slice(0, 15); // Limit to 15 characters
-                    addHighScore(playerName || 'Anonymous', score, 'mobile');
-                }
-                showHighScores = true;
-            } else {
-                showHighScores = true;
-            }
-            return;
-        }
-
-        // Handle tap to restart from high scores
-        if (showHighScores) {
-            // Restart game
-            score = 0;
-            lives = 3;
-            shield = 100;
-            level = 1;
-            deaths = 0;
-            gameOver = false;
-            shipDestroying = false;
-            shipDestroyFrame = 0;
-            shipRotation = 0;
-            shipSpinSpeed = 0;
-            levelComplete = false;
-            levelCompleteTimer = 0;
-            levelCompleteMessage = '';
-            showHighScores = false;
-            enteringName = false;
-            playerName = '';
-            pumpkinSpeed = (isMobile ? 0.5 : 1) * SCALE;
-            bigBossMode = false;
-            bigBoss = null;
-            witch = null;
-            extraLifeToken = null;
-            witchLevelInterval = 0;
-            lastWitchLevel = 0;
-            player.x = WIDTH / 2;
-            player.y = HEIGHT - (60 * SCALE);
-            player.bullets = [];
-            enemyGrenades = [];
-            bossProjectiles = [];
-            powerUps = [];
-            cloneShips = [];
-            pumpkinBits = [];
-            autoShootCooldown = 0;
-            pierceCooldownTimer = 0;
-            activePowerUps = {
-                laser: { active: false, timer: 0 },
-                clone: { active: false, timer: 0 },
-                autoshoot: { active: false, timer: 0 },
-                pierceknife: { active: false, timer: 0 }
-            };
-            shuffleBossNames();
-            initPumpkins();
-            updateUI();
-            return;
-        }
-
-        // Process all new touches on canvas - first touch for movement, second for shooting
-        for (let i = 0; i < e.changedTouches.length; i++) {
-            const touch = e.changedTouches[i];
-            const x = touch.clientX - rect.left;
-            const y = touch.clientY - rect.top;
-
-            // Store touch info
-            activeTouches.set(touch.identifier, { x, y });
-
-            // First touch is for movement
-            if (touchControls.movementTouchId === null) {
-                touchControls.movementTouchId = touch.identifier;
-                touchControls.targetX = x;
-            }
-            // Second touch is for shooting (multi-touch support)
-            else if (touchControls.shootTouchId === null) {
-                touchControls.shootTouchId = touch.identifier;
-                touchControls.shoot = true;
-            }
-        }
-    });
-
-    canvas.addEventListener('touchmove', (e) => {
-        e.preventDefault();
-        const rect = canvas.getBoundingClientRect();
-
-        // Update all moving touches
-        for (let i = 0; i < e.changedTouches.length; i++) {
-            const touch = e.changedTouches[i];
-            const x = touch.clientX - rect.left;
-            const y = touch.clientY - rect.top;
-
-            // Update stored position
-            if (activeTouches.has(touch.identifier)) {
-                activeTouches.set(touch.identifier, { x, y });
-            }
-
-            // If this is the movement touch, update target position
-            if (touch.identifier === touchControls.movementTouchId) {
-                touchControls.targetX = x;
-            }
-        }
-    });
-
-    canvas.addEventListener('touchend', (e) => {
-        e.preventDefault();
-
-        // Process all ended touches
-        for (let i = 0; i < e.changedTouches.length; i++) {
-            const touch = e.changedTouches[i];
-
-            // Remove from active touches
-            activeTouches.delete(touch.identifier);
-
-            // Clear movement if this was the movement touch
-            if (touch.identifier === touchControls.movementTouchId) {
-                touchControls.movementTouchId = null;
-                touchControls.targetX = null;
-            }
-
-            // Clear shooting if this was the shoot touch
-            if (touch.identifier === touchControls.shootTouchId) {
-                touchControls.shootTouchId = null;
-                touchControls.shoot = false;
-            }
-        }
-    });
-
-    canvas.addEventListener('touchcancel', (e) => {
-        e.preventDefault();
-
-        // Handle cancelled touches the same as touchend
-        for (let i = 0; i < e.changedTouches.length; i++) {
-            const touch = e.changedTouches[i];
-            activeTouches.delete(touch.identifier);
-
-            if (touch.identifier === touchControls.movementTouchId) {
-                touchControls.movementTouchId = null;
-                touchControls.targetX = null;
-            }
-
-            if (touch.identifier === touchControls.shootTouchId) {
-                touchControls.shootTouchId = null;
-                touchControls.shoot = false;
-            }
-        }
-    });
-
-    // Fire button controls (separate element above canvas)
-    const fireButton = document.getElementById('fireButton');
-    if (fireButton) {
-        fireButton.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            if (!gameStarted || (paused && !showSettings && !gameOver)) {
-                handleStartOrResumeInput();
-            }
-            touchControls.shoot = true;
-            // Visual feedback - button press effect
-            fireButton.style.transform = 'scale(0.95)';
-            fireButton.style.opacity = '0.8';
-        });
-
-        fireButton.addEventListener('touchend', (e) => {
-            e.preventDefault();
-            touchControls.shoot = false;
-            // Reset visual state
-            fireButton.style.transform = 'scale(1)';
-            fireButton.style.opacity = '1';
-        });
-
-        fireButton.addEventListener('touchcancel', (e) => {
-            e.preventDefault();
-            touchControls.shoot = false;
-            // Reset visual state
-            fireButton.style.transform = 'scale(1)';
-            fireButton.style.opacity = '1';
-        });
-    }
-}
-
-// Visibility change detection for pause/resume
-document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-        // Page is hidden (app backgrounded, tab switched, phone locked)
-        if (gameStarted && !gameOver) {
-            paused = true;
-            pauseAllMusic();
-        }
-        // Suspend audio context to save resources
-        if (audioContext && audioContext.state === 'running') {
-            audioContext.suspend();
-        }
-    } else {
-        // Page is visible again - audio will resume when user taps to unpause
-        // Don't auto-resume - wait for user to tap the button
-    }
-});
 
 // Game loop
 function gameLoop() {
@@ -5040,20 +4260,18 @@ document.addEventListener('keydown', (e) => {
     if (keyBindings.shoot.includes(e.key)) {
         e.preventDefault();
         // Calculate max bullets: 5 base, +2 per level starting at level 30
-        // Each clone adds 1 bullet, auto-shoot doubles the limit
-        const baseMaxBullets3 = level < 30 ? 5 : 5 + (2 * (level - 29));
-        const cloneBonus3 = cloneShips.length;
-        let maxBulletsMobile3 = baseMaxBullets3 + cloneBonus3;
-        if (activePowerUps.autoshoot.active) {
-            maxBulletsMobile3 *= 2;
-        }
-
+        // Each clone adds 1 bullet
+        const baseMaxBullets = level < 30 ? 5 : 5 + (2 * (level - 29));
+        const cloneBonus = cloneShips.length;
+        const maxBullets = baseMaxBullets + cloneBonus;
+        // Only main ship is blocked from shooting if it has laser (uses beam instead)
+        // Clones always shoot bullets unless they have laser
         const canMainShoot = !gameOver && !shipDestroying && !levelComplete &&
                             player.powerUp !== 'laser' &&
-                            player.bullets.length < maxBulletsMobile3;
+                            player.bullets.length < maxBullets;
 
         const canCloneShoot = !gameOver && !shipDestroying && !levelComplete &&
-                             player.bullets.length < maxBulletsMobile3;
+                             player.bullets.length < maxBullets;
 
         if (canMainShoot) {
             player.bullets.push({
@@ -5063,21 +4281,23 @@ document.addEventListener('keydown', (e) => {
             });
         }
 
+        // Clone ships always shoot regular bullets (unless they have laser)
         if (canCloneShoot) {
-            // Clone ships shoot too (unless they have laser)
             for (let clone of cloneShips) {
-                if (clone.powerUp !== 'laser' && player.bullets.length < maxBulletsMobile3) {
+                if (clone.powerUp !== 'laser') {
                     player.bullets.push({
                         x: clone.x,
                         y: clone.y - 20,
-                        pierce: false
+                        pierce: false // Clones never get pierce
                     });
                 }
             }
         }
 
-        // Play shooting sound if any ship shot
+        // Play shooting sound if anyone shot
         if (canMainShoot || canCloneShoot) {
+
+            // Play shooting sound
             if (player.powerUp === 'pierceknife') {
                 playPierceSound();
             } else {
@@ -5158,11 +4378,40 @@ document.addEventListener('keydown', (e) => {
     if (e.key === keyBindings.pause || e.key === keyBindings.pause.toUpperCase()) {
         paused = !paused;
         if (paused) {
-            pauseAllMusic();
+            stopBackgroundMusic();
+            stopSpookyMusic();
+            stopSizzle();
         } else {
-            resumeMusicAfterPause();
+            if (!bigBossMode) {
+                startBackgroundMusic();
+            } else if (bigBoss && bigBoss.alive) {
+                // Restart boss music if we're in a boss fight
+                const bossIndex = Math.floor((level / 3) - 1);
+                const musicTheme = bossIndex % 5;
+                startSpookyMusic(musicTheme);
+            }
         }
         return;
+    }
+
+    // VIRAL FEATURE: Share hotkeys during game over (Section 7)
+    if (gameOver && !enteringName && !showHighScores) {
+        if (e.key === 's' || e.key === 'S') {
+            downloadScreenshot();
+            return;
+        }
+        if (e.key === 't' || e.key === 'T') {
+            shareToTwitter();
+            return;
+        }
+        if (e.key === 'd' || e.key === 'D') {
+            shareToDiscord();
+            return;
+        }
+        if (e.key === 'c' || e.key === 'C') {
+            copyShareLink();
+            return;
+        }
     }
 
     if (e.key === 'Enter' && gameOver && !enteringName && !showHighScores) {
@@ -5176,7 +4425,6 @@ document.addEventListener('keydown', (e) => {
             lives = 3;
             shield = 100;
             level = 1;
-            deaths = 0;
             gameOver = false;
             shipDestroying = false;
             shipDestroyFrame = 0;
@@ -5188,7 +4436,7 @@ document.addEventListener('keydown', (e) => {
             showHighScores = false;
             enteringName = false;
             playerName = '';
-            pumpkinSpeed = (isMobile ? 0.5 : 1) * SCALE;
+            pumpkinSpeed = 1;
             bigBossMode = false;
             bigBoss = null;
             witch = null;
@@ -5196,7 +4444,7 @@ document.addEventListener('keydown', (e) => {
             witchLevelInterval = 0;
             lastWitchLevel = 0;
             player.x = WIDTH / 2;
-            player.y = HEIGHT - (60 * SCALE);
+            player.y = HEIGHT - 60;
             player.bullets = [];
             enemyGrenades = [];
             bossProjectiles = [];
@@ -5224,7 +4472,6 @@ document.addEventListener('keydown', (e) => {
         lives = 3;
         shield = 100;
         level = 1;
-        deaths = 0;
         gameOver = false;
         shipDestroying = false;
         shipDestroyFrame = 0;
@@ -5234,11 +4481,15 @@ document.addEventListener('keydown', (e) => {
         showHighScores = false;
         enteringName = false;
         playerName = '';
-        pumpkinSpeed = (isMobile ? 0.5 : 1) * SCALE;
+        pumpkinSpeed = 1;
         bigBossMode = false;
         bigBoss = null;
+        witch = null;
+        extraLifeToken = null;
+        witchLevelInterval = 0;
+        lastWitchLevel = 0;
         player.x = WIDTH / 2;
-        player.y = HEIGHT - (60 * SCALE);
+        player.y = HEIGHT - 60;
         player.bullets = [];
         enemyGrenades = [];
         bossProjectiles = [];
@@ -5261,6 +4512,30 @@ document.addEventListener('keydown', (e) => {
 
 document.addEventListener('keyup', (e) => {
     keys[e.key] = false;
+});
+
+// VIRAL FEATURE: Canvas click handler for share buttons (Section 6)
+canvas.addEventListener('click', (e) => {
+    if (!gameOver) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // Check if clicking share buttons
+    const buttonY = HEIGHT/2 + 70;
+    if (y >= buttonY && y <= buttonY + 40) {
+        if (x >= WIDTH/2 - 180 && x <= WIDTH/2 - 60) {
+            // Screenshot button
+            downloadScreenshot();
+        } else if (x >= WIDTH/2 - 50 && x <= WIDTH/2 + 70) {
+            // Discord button
+            shareToDiscord();
+        } else if (x >= WIDTH/2 + 80 && x <= WIDTH/2 + 200) {
+            // Twitter button
+            shareToTwitter();
+        }
+    }
 });
 
 // Initialize and start game

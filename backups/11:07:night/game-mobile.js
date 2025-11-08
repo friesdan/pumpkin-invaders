@@ -125,23 +125,11 @@ function getAudioContext() {
     return audioContext;
 }
 
-// Ensure Web Audio unlocks on the first user gesture (needed on iOS)
-const AUDIO_UNLOCK_EVENTS = ['pointerdown', 'touchstart', 'keydown'];
-function resumeAudioOnFirstInteraction() {
-    unlockAudioContext();
-    AUDIO_UNLOCK_EVENTS.forEach((event) => {
-        window.removeEventListener(event, resumeAudioOnFirstInteraction);
-    });
-}
-AUDIO_UNLOCK_EVENTS.forEach((event) => {
-    window.addEventListener(event, resumeAudioOnFirstInteraction, { once: true });
-});
-
 // Unlock audio context on first user interaction (required for iOS)
 function unlockAudioContext() {
     const ctx = getAudioContext();
     // Resume the context if it's suspended
-    if (ctx.state === 'suspended' || ctx.state === 'interrupted') {
+    if (ctx.state === 'suspended') {
         ctx.resume();
     }
 
@@ -433,9 +421,6 @@ function initPumpkins() {
             width: bossSize,
             height: bossSize,
             baseSize: PUMPKIN_SIZE,
-            minSize: PUMPKIN_SIZE * 2,
-            maxSize: bossSize,
-            pendingSize: null,
             damage: 0,
             maxDamage: isArellaLevel ? baseHP * 1.5 : baseHP, // ARELLA has 50% more HP
             alive: true,
@@ -2333,56 +2318,6 @@ function stopSizzle() {
     }
 }
 
-function pauseAllMusic() {
-    stopBackgroundMusic();
-    stopSpookyMusic();
-    stopSizzle();
-    backgroundMusicOscillators = [];
-    backgroundMusicGain = null;
-    spookyMusicOscillators = [];
-    spookyMusicGain = null;
-    sizzleOscillator = null;
-    sizzleGain = null;
-}
-
-async function resumeMusicAfterPause() {
-    if (gameOver) return;
-
-    try {
-        const ctx = getAudioContext();
-        if (ctx.state === 'suspended' || ctx.state === 'interrupted') {
-            await ctx.resume();
-        }
-    } catch (e) {
-        console.log('Audio resume error:', e);
-    }
-
-    backgroundMusicOscillators = [];
-    backgroundMusicGain = null;
-    spookyMusicOscillators = [];
-    spookyMusicGain = null;
-
-    if (!bigBossMode) {
-        startBackgroundMusic();
-    } else if (bigBoss && bigBoss.alive) {
-        const bossIndex = Math.floor((level / 3) - 1);
-        const musicTheme = bossIndex % 5;
-        startSpookyMusic(musicTheme);
-    }
-}
-
-function handleStartOrResumeInput() {
-    unlockAudioContext();
-    const startingFresh = !gameStarted;
-    const wasUnpausing = paused;
-    gameStarted = true;
-    paused = false;
-
-    if (startingFresh || wasUnpausing) {
-        resumeMusicAfterPause();
-    }
-}
-
 // Start spooky boss music (theme: 0-4 for different musical themes)
 function startSpookyMusic(theme = 0) {
     try {
@@ -2642,52 +2577,20 @@ function shareToTwitter() {
     trackShare('twitter', score);
 }
 
-async function shareToDiscord() {
+function shareToDiscord() {
     const text = `🎃 I just scored ${score} on Pumpkin Invaders! Can you beat it?\nhttps://pumpkininvaders.com?challenge=${btoa(`${score}:${level}`)}`;
-    const copied = await copyTextToClipboard(text);
-    if (copied) {
+    navigator.clipboard.writeText(text).then(() => {
         alert('✅ Share message copied! Paste it in Discord!');
         trackShare('discord', score);
-    } else {
-        alert('⚠️ Clipboard unavailable. Manually copy:\n\n' + text);
-    }
+    });
 }
 
-async function copyShareLink() {
+function copyShareLink() {
     const url = 'https://pumpkininvaders.com?challenge=' + btoa(`${score}:${level}`);
-    const copied = await copyTextToClipboard(url);
-    if (copied) {
+    navigator.clipboard.writeText(url).then(() => {
         alert('✅ Link copied to clipboard!');
         trackShare('copy', score);
-    } else {
-        alert('⚠️ Clipboard unavailable. Manually copy:\n\n' + url);
-    }
-}
-
-async function copyTextToClipboard(text) {
-    if (navigator.clipboard && window.isSecureContext) {
-        try {
-            await navigator.clipboard.writeText(text);
-            return true;
-        } catch (err) {
-            // Fall through to execCommand fallback
-        }
-    }
-
-    try {
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.focus();
-        textarea.select();
-        const successful = document.execCommand('copy');
-        document.body.removeChild(textarea);
-        return successful;
-    } catch (err) {
-        return false;
-    }
+    });
 }
 
 async function downloadScreenshot() {
@@ -3138,13 +3041,6 @@ function update() {
                         // Teleport to random location - much wider range for more dramatic jumps
                         bigBoss.targetX = (Math.random() * (WIDTH - 300)) + 150;
                         bigBoss.targetY = HEIGHT * (0.1 + Math.random() * 0.4); // 10-50% down screen (wider vertical range)
-                        const healthRemaining = bigBoss.maxDamage - bigBoss.damage;
-                        if (healthRemaining <= 100) {
-                            const minSize = Math.min(bigBoss.minSize || bigBoss.baseSize * 2, bigBoss.maxSize || bigBoss.width);
-                            const maxSize = Math.max(bigBoss.minSize || bigBoss.baseSize * 2, bigBoss.maxSize || bigBoss.width);
-                            const newSize = minSize + Math.random() * (maxSize - minSize);
-                            bigBoss.pendingSize = newSize;
-                        }
                         return true; // Bullet passes through during teleport
                     }
                 }
@@ -3889,11 +3785,6 @@ function update() {
                     // Teleport complete
                     bigBoss.teleporting = false;
                     bigBoss.teleportFrame = 0;
-                    if (bigBoss.pendingSize && bigBoss.isArella) {
-                        bigBoss.width = bigBoss.pendingSize;
-                        bigBoss.height = bigBoss.pendingSize;
-                        bigBoss.pendingSize = null;
-                    }
                 }
             }
 
@@ -4798,7 +4689,46 @@ if (isMobile) {
 
         // Handle start button tap
         if (!gameStarted || (paused && !showSettings && !gameOver)) {
-            handleStartOrResumeInput();
+            unlockAudioContext();
+            const wasUnpausing = paused; // Track if we're unpausing
+            gameStarted = true;
+            paused = false;
+
+            // Resume audio context if it was suspended, then restart music
+            if (audioContext && audioContext.state === 'suspended') {
+                audioContext.resume().then(() => {
+                    if (wasUnpausing) {
+                        // Clear any stale music state
+                        backgroundMusicOscillators = [];
+                        backgroundMusicGain = null;
+                        spookyMusicOscillators = [];
+                        spookyMusicGain = null;
+
+                        if (!bigBossMode) {
+                            startBackgroundMusic();
+                        } else if (bigBoss && bigBoss.alive) {
+                            // Restart boss music if we're in a boss fight
+                            const bossIndex = Math.floor((level / 3) - 1);
+                            const musicTheme = bossIndex % 5;
+                            startSpookyMusic(musicTheme);
+                        }
+                    }
+                });
+            } else if (wasUnpausing) {
+                // Context wasn't suspended, just restart music
+                backgroundMusicOscillators = [];
+                backgroundMusicGain = null;
+                spookyMusicOscillators = [];
+                spookyMusicGain = null;
+
+                if (!bigBossMode) {
+                    startBackgroundMusic();
+                } else if (bigBoss && bigBoss.alive) {
+                    const bossIndex = Math.floor((level / 3) - 1);
+                    const musicTheme = bossIndex % 5;
+                    startSpookyMusic(musicTheme);
+                }
+            }
             return;
         }
 
@@ -4968,9 +4898,6 @@ if (isMobile) {
     if (fireButton) {
         fireButton.addEventListener('touchstart', (e) => {
             e.preventDefault();
-            if (!gameStarted || (paused && !showSettings && !gameOver)) {
-                handleStartOrResumeInput();
-            }
             touchControls.shoot = true;
             // Visual feedback - button press effect
             fireButton.style.transform = 'scale(0.95)';
@@ -5001,7 +4928,6 @@ document.addEventListener('visibilitychange', () => {
         // Page is hidden (app backgrounded, tab switched, phone locked)
         if (gameStarted && !gameOver) {
             paused = true;
-            pauseAllMusic();
         }
         // Suspend audio context to save resources
         if (audioContext && audioContext.state === 'running') {
@@ -5158,9 +5084,18 @@ document.addEventListener('keydown', (e) => {
     if (e.key === keyBindings.pause || e.key === keyBindings.pause.toUpperCase()) {
         paused = !paused;
         if (paused) {
-            pauseAllMusic();
+            stopBackgroundMusic();
+            stopSpookyMusic();
+            stopSizzle();
         } else {
-            resumeMusicAfterPause();
+            if (!bigBossMode) {
+                startBackgroundMusic();
+            } else if (bigBoss && bigBoss.alive) {
+                // Restart boss music if we're in a boss fight
+                const bossIndex = Math.floor((level / 3) - 1);
+                const musicTheme = bossIndex % 5;
+                startSpookyMusic(musicTheme);
+            }
         }
         return;
     }

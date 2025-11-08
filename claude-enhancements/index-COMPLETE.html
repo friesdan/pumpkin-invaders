@@ -2,26 +2,29 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
     <!-- SEO Meta Tags -->
-    <title>🎃 Pumpkin Invaders Mobile - Halloween Arcade Game</title>
-    <meta name="description" content="Play Pumpkin Invaders on mobile! Destroy waves of attacking pumpkins in this addictive Halloween arcade game!">
-
-    <!-- Social Media Meta Tags -->
+    <title>🎃 Pumpkin Invaders - Free Halloween Arcade Game</title>
+    <meta name="description" content="Destroy waves of attacking pumpkins in this addictive Halloween arcade game! Challenge your friends and climb the leaderboard.">
+    <meta name="keywords" content="pumpkin invaders, halloween game, arcade game, space invaders, browser game, free game">
+    
+    <!-- Social Media Meta Tags (Open Graph) -->
     <meta property="og:title" content="🎃 Pumpkin Invaders - Halloween Arcade Game">
     <meta property="og:description" content="Can you beat my score? Play this addictive Halloween arcade game!">
     <meta property="og:image" content="https://pumpkininvaders.com/og-image.png">
     <meta property="og:url" content="https://pumpkininvaders.com">
-
-    <!-- Twitter Card -->
+    <meta property="og:type" content="website">
+    
+    <!-- Twitter Card Meta Tags -->
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="🎃 Pumpkin Invaders">
     <meta name="twitter:description" content="Challenge your friends in this Halloween arcade game!">
-
+    <meta name="twitter:image" content="https://pumpkininvaders.com/og-image.png">
+    
     <!-- Favicon -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎃</text></svg>">
-
+    
     <!-- Google Analytics GA4 -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-ZJ3S5S70E6"></script>
     <script>
@@ -30,17 +33,23 @@
         gtag('js', new Date());
         gtag('config', 'G-ZJ3S5S70E6');
     </script>
-
+    
     <!-- Google AdSense -->
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9922535389833347"
      crossorigin="anonymous"></script>
-
+    
+    <!-- Auto-redirect mobile devices -->
+    <script>
+        if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+            window.location.href = 'index-mobile.html';
+        }
+    </script>
+    
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            -webkit-tap-highlight-color: transparent;
         }
 
         body {
@@ -48,53 +57,38 @@
             padding: 0;
             display: flex;
             flex-direction: column;
-            justify-content: flex-start;
+            justify-content: center;
             align-items: center;
             min-height: 100vh;
             background: linear-gradient(to bottom, #1a0033, #2d1b3d);
             font-family: 'Courier New', monospace;
             color: #ff6600;
-            overflow-x: hidden;
-            touch-action: pan-y;
+        }
+
+        /* Ad Container at Top */
+        #topAdContainer {
+            width: 100%;
+            max-width: 728px;
+            min-height: 90px;
+            margin: 10px auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
 
         h1 {
-            margin: 10px 0;
-            font-size: clamp(1.2em, 6vw, 2.5em);
+            margin: 20px 0;
+            font-size: 2.5em;
             text-shadow: 0 0 20px #ff6600;
             color: #ff8800;
             text-align: center;
-            width: 100%;
-            padding: 0 10px;
-            white-space: nowrap;
-            overflow: hidden;
         }
 
-        #fireButton {
-            width: 90%;
-            max-width: 800px;
-            height: 80px;
-            background: linear-gradient(135deg, #ff0000, #cc0000);
-            border: 3px solid #ff6600;
-            border-radius: 15px;
+        #gameContainer {
+            position: relative;
             display: flex;
+            flex-direction: column;
             align-items: center;
-            justify-content: center;
-            font-size: 2em;
-            font-weight: bold;
-            color: white;
-            text-shadow: 0 0 10px #ff0000;
-            box-shadow: 0 0 20px #ff0000;
-            margin-bottom: 15px;
-            cursor: pointer;
-            user-select: none;
-            touch-action: none;
-            transition: transform 0.1s, opacity 0.1s;
-        }
-
-        #fireButton:active {
-            transform: scale(0.95);
-            opacity: 0.8;
         }
 
         #gameCanvas {
@@ -102,16 +96,13 @@
             box-shadow: 0 0 30px #ff6600;
             background: #0a0015;
             display: block;
-            touch-action: none;
         }
 
         #ui {
-            margin-top: 15px;
+            margin-top: 20px;
             display: flex;
-            gap: 20px;
-            font-size: 1em;
-            flex-wrap: wrap;
-            justify-content: center;
+            gap: 40px;
+            font-size: 1.2em;
         }
 
         .stat {
@@ -119,48 +110,46 @@
         }
 
         #instructions {
-            margin-top: 15px;
+            margin-top: 20px;
             text-align: center;
             color: #ffaa00;
-            max-width: 90%;
-            font-size: 0.9em;
-            padding: 0 10px;
+            max-width: 600px;
         }
 
-        /* Share Buttons - Mobile Optimized */
+        /* Social Share Buttons */
         #shareButtons {
-            margin-top: 15px;
+            margin-top: 20px;
             display: flex;
-            gap: 10px;
+            gap: 15px;
             flex-wrap: wrap;
             justify-content: center;
-            padding: 0 10px;
-            width: 100%;
         }
 
         .shareBtn {
-            padding: 12px 16px;
+            padding: 10px 20px;
             background: linear-gradient(135deg, #ff6600, #ff8800);
             border: 2px solid #ffaa00;
             border-radius: 8px;
             color: white;
             font-family: 'Courier New', monospace;
-            font-size: 13px;
+            font-size: 14px;
             font-weight: bold;
             cursor: pointer;
             text-decoration: none;
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            transition: transform 0.2s;
+            gap: 8px;
+            transition: transform 0.2s, box-shadow 0.2s;
             box-shadow: 0 4px 15px rgba(255, 102, 0, 0.3);
-            flex: 1 1 auto;
-            min-width: 120px;
-            justify-content: center;
+        }
+
+        .shareBtn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 102, 0, 0.5);
         }
 
         .shareBtn:active {
-            transform: scale(0.95);
+            transform: translateY(0);
         }
 
         .shareBtn.coffee {
@@ -168,14 +157,13 @@
             border-color: #FFDD00;
         }
 
-        /* Footer */
+        /* Footer with link */
         #footer {
-            margin-top: 20px;
+            margin-top: 30px;
             margin-bottom: 20px;
             text-align: center;
             color: #888;
-            font-size: 11px;
-            padding: 0 10px;
+            font-size: 12px;
         }
 
         #footer a {
@@ -183,22 +171,31 @@
             text-decoration: none;
         }
 
-        /* Feedback button - Mobile positioned */
+        #footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Feedback button */
         #feedbackBtn {
             position: fixed;
-            bottom: 10px;
-            right: 10px;
-            padding: 10px 16px;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 24px;
             background: linear-gradient(135deg, #4a90e2, #357abd);
             border: 2px solid #5aa3e8;
             border-radius: 8px;
             color: white;
             font-family: 'Courier New', monospace;
-            font-size: 12px;
+            font-size: 14px;
             font-weight: bold;
             cursor: pointer;
             box-shadow: 0 4px 15px rgba(74, 144, 226, 0.3);
+            transition: transform 0.2s;
             z-index: 1000;
+        }
+
+        #feedbackBtn:hover {
+            transform: translateY(-2px);
         }
 
         /* Feedback Modal */
@@ -210,7 +207,7 @@
             top: 0;
             width: 100%;
             height: 100%;
-            background-color: rgba(0, 0, 0, 0.9);
+            background-color: rgba(0, 0, 0, 0.8);
             justify-content: center;
             align-items: center;
         }
@@ -223,9 +220,9 @@
             background: linear-gradient(to bottom, #2d1b3d, #1a0033);
             border: 3px solid #ff6600;
             border-radius: 12px;
-            padding: 20px;
-            max-width: 90%;
-            width: 400px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
             box-shadow: 0 0 40px #ff6600;
         }
 
@@ -233,12 +230,11 @@
             color: #ff8800;
             margin-bottom: 15px;
             text-align: center;
-            font-size: 1.3em;
         }
 
         .modal-content textarea {
             width: 100%;
-            min-height: 100px;
+            min-height: 120px;
             padding: 10px;
             background: #0a0015;
             border: 2px solid #ff6600;
@@ -250,6 +246,10 @@
             resize: vertical;
         }
 
+        .modal-content textarea::placeholder {
+            color: #888;
+        }
+
         .modal-buttons {
             display: flex;
             gap: 10px;
@@ -257,14 +257,14 @@
         }
 
         .modal-buttons button {
-            padding: 12px 20px;
+            padding: 10px 20px;
             border: 2px solid #ff6600;
             border-radius: 8px;
             font-family: 'Courier New', monospace;
             font-size: 14px;
             font-weight: bold;
             cursor: pointer;
-            flex: 1;
+            transition: transform 0.2s;
         }
 
         .modal-buttons button.submit {
@@ -277,45 +277,79 @@
             color: white;
         }
 
+        .modal-buttons button:hover {
+            transform: translateY(-2px);
+        }
+
         .feedback-count {
             text-align: center;
             color: #888;
-            font-size: 11px;
+            font-size: 12px;
             margin-top: 10px;
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            h1 {
+                font-size: 1.8em;
+            }
+            
+            #feedbackBtn {
+                bottom: 10px;
+                right: 10px;
+                padding: 10px 16px;
+                font-size: 12px;
+            }
         }
     </style>
 </head>
 <body>
+    <!-- Top Banner Ad -->
+    <div id="topAdContainer">
+        <!-- AdSense Auto Ads will appear here -->
+        <!-- You can also manually add ad units here once you have ad slot IDs -->
+    </div>
+
     <h1>🎃 PUMPKIN INVADERS 🎃</h1>
+    
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        
+        <div id="ui">
+            <div class="stat">Score: <span id="score">0</span></div>
+            <div class="stat">Lives: <span id="lives">3</span></div>
+            <div class="stat">Level: <span id="level">1</span></div>
+        </div>
+        
+        <div id="instructions">
+            <p>← → Arrow keys to move | A,S,D,F,SPACE to shoot | P to pause</p>
+            <p>Destroy pumpkins before they reach your spaceship!</p>
+        </div>
 
-    <div id="fireButton">🔥 TAP TO FIRE 🔥</div>
-
-    <canvas id="gameCanvas" width="800" height="600"></canvas>
-
-    <div id="ui">
-        <div class="stat">Score: <span id="score">0</span></div>
-        <div class="stat">Lives: <span id="lives">3</span></div>
-        <div class="stat">Level: <span id="level">1</span></div>
-    </div>
-
-    <div id="instructions">
-        <p>Tap red button to fire | Drag on canvas to move</p>
-        <p>Destroy pumpkins before they reach your spaceship!</p>
-    </div>
-
-    <!-- Share Buttons -->
-    <div id="shareButtons">
-        <button class="shareBtn" onclick="shareToTwitter()">🐦 Twitter</button>
-        <button class="shareBtn" onclick="shareToDiscord()">💬 Discord</button>
-        <button class="shareBtn" onclick="copyShareLink()">🔗 Link</button>
-        <button class="shareBtn" onclick="downloadScreenshot()">📸 Screenshot</button>
-        <a href="https://www.buymeacoffee.com/friesdan" target="_blank" class="shareBtn coffee">☕ Coffee</a>
+        <!-- Share Buttons -->
+        <div id="shareButtons">
+            <button class="shareBtn" onclick="shareToTwitter()">
+                🐦 Share on Twitter
+            </button>
+            <button class="shareBtn" onclick="shareToDiscord()">
+                💬 Share to Discord
+            </button>
+            <button class="shareBtn" onclick="copyShareLink()">
+                🔗 Copy Link
+            </button>
+            <button class="shareBtn" onclick="downloadScreenshot()">
+                📸 Screenshot
+            </button>
+            <a href="https://www.buymeacoffee.com/friesdan" target="_blank" class="shareBtn coffee">
+                ☕ Buy Dan a Coffee
+            </a>
+        </div>
     </div>
 
     <!-- Footer -->
     <div id="footer">
         <p>Made with 🎃 by Dan | <a href="#" onclick="openFeedbackModal(); return false;">Send Feedback</a></p>
-        <p style="margin-top: 5px;">v1.2 Mobile - Share with friends!</p>
+        <p style="margin-top: 5px;">v1.2 - Share with friends and climb the leaderboard!</p>
     </div>
 
     <!-- Feedback Button -->
@@ -325,10 +359,10 @@
     <div id="feedbackModal">
         <div class="modal-content">
             <h2>💬 Send Feedback</h2>
-            <p style="color: #ffaa00; font-size: 13px; margin-bottom: 15px; text-align: center;">
+            <p style="color: #ffaa00; font-size: 14px; margin-bottom: 15px; text-align: center;">
                 Help make Pumpkin Invaders better!
             </p>
-            <textarea id="feedbackText" placeholder="What do you think? Ideas? Bugs?"></textarea>
+            <textarea id="feedbackText" placeholder="What do you think? Ideas? Bugs? Just want to say hi?"></textarea>
             <div class="modal-buttons">
                 <button class="submit" onclick="submitFeedback()">✓ Send</button>
                 <button class="cancel" onclick="closeFeedbackModal()">✗ Cancel</button>
@@ -338,18 +372,20 @@
     </div>
 
     <!-- Game Script -->
-    <script src="game-mobile.js"></script>
+    <script src="game.js"></script>
 
     <!-- Sharing & Feedback Functions -->
     <script>
-        // Feedback System (same as desktop)
+        // Feedback System - Stores locally and notifies Dan weekly
         function openFeedbackModal() {
             document.getElementById('feedbackModal').classList.add('show');
             document.getElementById('feedbackText').value = '';
             updateFeedbackCount();
-
+            
             if (typeof gtag !== 'undefined') {
-                gtag('event', 'feedback_open', { event_category: 'engagement' });
+                gtag('event', 'feedback_open', {
+                    event_category: 'engagement'
+                });
             }
         }
 
@@ -359,46 +395,54 @@
 
         function submitFeedback() {
             const text = document.getElementById('feedbackText').value.trim();
+            
             if (!text) {
                 alert('Please enter some feedback!');
                 return;
             }
 
+            // Store feedback locally
             const feedback = {
                 text: text,
                 timestamp: new Date().toISOString(),
                 score: parseInt(document.getElementById('score').textContent),
                 level: parseInt(document.getElementById('level').textContent),
-                userAgent: navigator.userAgent,
-                platform: 'mobile'
+                userAgent: navigator.userAgent
             };
 
+            // Get existing feedback
             let allFeedback = JSON.parse(localStorage.getItem('pumpkinInvadersFeedback') || '[]');
             allFeedback.push(feedback);
             localStorage.setItem('pumpkinInvadersFeedback', JSON.stringify(allFeedback));
 
+            // Check if we should notify Dan (once per week max)
             const lastNotification = localStorage.getItem('lastFeedbackNotification');
             const now = Date.now();
             const oneWeek = 7 * 24 * 60 * 60 * 1000;
 
             if (!lastNotification || (now - parseInt(lastNotification)) > oneWeek) {
+                // Time to notify Dan!
                 notifyDanOfFeedback(allFeedback);
                 localStorage.setItem('lastFeedbackNotification', now.toString());
             }
 
+            // Track in Analytics
             if (typeof gtag !== 'undefined') {
                 gtag('event', 'feedback_submit', {
                     event_category: 'engagement',
-                    event_label: 'feedback_submitted_mobile',
+                    event_label: 'feedback_submitted',
                     value: allFeedback.length
                 });
             }
 
-            alert('✅ Thanks for the feedback!');
+            alert('✅ Thanks for the feedback! Dan will see this soon.');
             closeFeedbackModal();
         }
 
         function notifyDanOfFeedback(allFeedback) {
+            // This sends feedback to Dan via Analytics event
+            // Dan can see these in his GA4 Events report
+            
             const unreadCount = allFeedback.filter(f => {
                 const lastCheck = localStorage.getItem('danLastChecked') || '0';
                 return new Date(f.timestamp).getTime() > parseInt(lastCheck);
@@ -412,6 +456,12 @@
                     total_feedback: allFeedback.length
                 });
             }
+
+            // Also log to console so Dan can check browser console
+            console.log('📧 FEEDBACK DIGEST FOR DAN 📧');
+            console.log(`Total feedback items: ${allFeedback.length}`);
+            console.log(`New since last check: ${unreadCount}`);
+            console.log('Recent feedback:', allFeedback.slice(-5));
         }
 
         function updateFeedbackCount() {
@@ -422,12 +472,15 @@
             }
         }
 
+        // Close modal when clicking outside
         document.getElementById('feedbackModal').addEventListener('click', function(e) {
             if (e.target === this) {
                 closeFeedbackModal();
             }
         });
 
+        // Dan can check feedback anytime by running this in console:
+        // showAllFeedback()
         window.showAllFeedback = function() {
             const allFeedback = JSON.parse(localStorage.getItem('pumpkinInvadersFeedback') || '[]');
             console.table(allFeedback);
@@ -435,12 +488,85 @@
             return allFeedback;
         };
 
+        // Share Functions
+        function shareToTwitter() {
+            const score = parseInt(document.getElementById('score').textContent);
+            const level = parseInt(document.getElementById('level').textContent);
+            const text = `🎃 I just scored ${score} on Pumpkin Invaders! Can you beat it?`;
+            const url = 'https://pumpkininvaders.com?challenge=' + btoa(`${score}:${level}`);
+            const twitterURL = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+            window.open(twitterURL, '_blank', 'width=550,height=420');
+            
+            if (typeof gtag !== 'undefined') {
+                gtag('event', 'share', {
+                    method: 'Twitter',
+                    content_type: 'game',
+                    item_id: 'pumpkin_invaders'
+                });
+            }
+        }
+
+        function shareToDiscord() {
+            const score = parseInt(document.getElementById('score').textContent);
+            const level = parseInt(document.getElementById('level').textContent);
+            const text = `🎃 I just scored ${score} on Pumpkin Invaders! Can you beat it?\nhttps://pumpkininvaders.com?challenge=${btoa(`${score}:${level}`)}`;
+            
+            navigator.clipboard.writeText(text).then(() => {
+                alert('✅ Share message copied! Paste it in Discord!');
+            });
+            
+            if (typeof gtag !== 'undefined') {
+                gtag('event', 'share', {
+                    method: 'Discord',
+                    content_type: 'game',
+                    item_id: 'pumpkin_invaders'
+                });
+            }
+        }
+
+        function copyShareLink() {
+            const score = parseInt(document.getElementById('score').textContent);
+            const level = parseInt(document.getElementById('level').textContent);
+            const url = 'https://pumpkininvaders.com?challenge=' + btoa(`${score}:${level}`);
+            
+            navigator.clipboard.writeText(url).then(() => {
+                alert('✅ Link copied to clipboard!');
+            });
+            
+            if (typeof gtag !== 'undefined') {
+                gtag('event', 'share', {
+                    method: 'Copy Link',
+                    content_type: 'game',
+                    item_id: 'pumpkin_invaders'
+                });
+            }
+        }
+
+        function downloadScreenshot() {
+            // This will call the canvas screenshot function from game.js
+            if (typeof captureGameScreenshot !== 'undefined') {
+                captureGameScreenshot();
+            } else {
+                alert('Screenshot feature coming soon!');
+            }
+        }
+
         // Track page views
         if (typeof gtag !== 'undefined') {
             gtag('event', 'page_view', {
-                page_title: 'Pumpkin Invaders Mobile',
+                page_title: 'Pumpkin Invaders Game',
                 page_location: window.location.href,
                 page_path: window.location.pathname
+            });
+        }
+
+        // Check for referral tracking
+        const urlParams = new URLSearchParams(window.location.search);
+        const ref = urlParams.get('ref');
+        if (ref === 'share' && typeof gtag !== 'undefined') {
+            gtag('event', 'referral_visit', {
+                event_category: 'acquisition',
+                event_label: ref
             });
         }
     </script>
