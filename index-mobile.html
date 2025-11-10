@@ -201,88 +201,6 @@
             z-index: 1000;
         }
 
-        /* Feedback Modal */
-        #feedbackModal {
-            display: none;
-            position: fixed;
-            z-index: 10000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.9);
-            justify-content: center;
-            align-items: center;
-        }
-
-        #feedbackModal.show {
-            display: flex;
-        }
-
-        .modal-content {
-            background: linear-gradient(to bottom, #2d1b3d, #1a0033);
-            border: 3px solid #ff6600;
-            border-radius: 12px;
-            padding: 20px;
-            max-width: 90%;
-            width: 400px;
-            box-shadow: 0 0 40px #ff6600;
-        }
-
-        .modal-content h2 {
-            color: #ff8800;
-            margin-bottom: 15px;
-            text-align: center;
-            font-size: 1.3em;
-        }
-
-        .modal-content textarea {
-            width: 100%;
-            min-height: 100px;
-            padding: 10px;
-            background: #0a0015;
-            border: 2px solid #ff6600;
-            border-radius: 8px;
-            color: #ffaa00;
-            font-family: 'Courier New', monospace;
-            font-size: 14px;
-            margin-bottom: 15px;
-            resize: vertical;
-        }
-
-        .modal-buttons {
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-        }
-
-        .modal-buttons button {
-            padding: 12px 20px;
-            border: 2px solid #ff6600;
-            border-radius: 8px;
-            font-family: 'Courier New', monospace;
-            font-size: 14px;
-            font-weight: bold;
-            cursor: pointer;
-            flex: 1;
-        }
-
-        .modal-buttons button.submit {
-            background: linear-gradient(135deg, #00cc00, #009900);
-            color: white;
-        }
-
-        .modal-buttons button.cancel {
-            background: linear-gradient(135deg, #666, #444);
-            color: white;
-        }
-
-        .feedback-count {
-            text-align: center;
-            color: #888;
-            font-size: 11px;
-            margin-top: 10px;
-        }
     </style>
 </head>
 <body>
@@ -314,131 +232,34 @@
 
     <!-- Footer -->
     <div id="footer">
-        <p>Made with 🎃 by Dan | <a href="#" onclick="openFeedbackModal(); return false;">Send Feedback</a></p>
+        <p>Made with 🎃 by Dan | <a href="#" onclick="openFeedbackForm(); return false;">Send Feedback</a></p>
         <p style="margin-top: 5px;">v1.6 Mobile - Randomized boss sizes after level 25!</p>
     </div>
 
     <!-- Feedback Button -->
-    <button id="feedbackBtn" onclick="openFeedbackModal()">💬 Feedback</button>
-
-    <!-- Feedback Modal -->
-    <div id="feedbackModal">
-        <div class="modal-content">
-            <h2>💬 Send Feedback</h2>
-            <p style="color: #ffaa00; font-size: 13px; margin-bottom: 15px; text-align: center;">
-                Help make Pumpkin Invaders better!
-            </p>
-            <textarea id="feedbackText" placeholder="What do you think? Ideas? Bugs?"></textarea>
-            <div class="modal-buttons">
-                <button class="submit" onclick="submitFeedback()">✓ Send</button>
-                <button class="cancel" onclick="closeFeedbackModal()">✗ Cancel</button>
-            </div>
-            <div class="feedback-count" id="feedbackCount"></div>
-        </div>
-    </div>
+    <button id="feedbackBtn" onclick="openFeedbackForm()">💬 Feedback</button>
 
     <!-- Game Script -->
     <script src="game-mobile.js"></script>
 
     <!-- Sharing & Feedback Functions -->
     <script>
-        // Feedback System (same as desktop)
-        function openFeedbackModal() {
-            document.getElementById('feedbackModal').classList.add('show');
-            document.getElementById('feedbackText').value = '';
-            updateFeedbackCount();
+        // Feedback System - Opens Google Form
+        function openFeedbackForm() {
+            const feedbackUrl = 'https://docs.google.com/forms/d/e/1FAIpQLSet22iPUh5c2i_w8449lmSIBzaJ1XUN-HHQNQ76jv4GP14jJQ/viewform?usp=sf_link';
+            window.open(feedbackUrl, '_blank');
 
+            // Track feedback open event
             if (typeof gtag !== 'undefined') {
-                gtag('event', 'feedback_open', { event_category: 'engagement' });
-            }
-        }
-
-        function closeFeedbackModal() {
-            document.getElementById('feedbackModal').classList.remove('show');
-        }
-
-        function submitFeedback() {
-            const text = document.getElementById('feedbackText').value.trim();
-            if (!text) {
-                alert('Please enter some feedback!');
-                return;
-            }
-
-            const feedback = {
-                text: text,
-                timestamp: new Date().toISOString(),
-                score: parseInt(document.getElementById('score').textContent),
-                level: parseInt(document.getElementById('level').textContent),
-                userAgent: navigator.userAgent,
-                platform: 'mobile'
-            };
-
-            let allFeedback = JSON.parse(localStorage.getItem('pumpkinInvadersFeedback') || '[]');
-            allFeedback.push(feedback);
-            localStorage.setItem('pumpkinInvadersFeedback', JSON.stringify(allFeedback));
-
-            const lastNotification = localStorage.getItem('lastFeedbackNotification');
-            const now = Date.now();
-            const oneWeek = 7 * 24 * 60 * 60 * 1000;
-
-            if (!lastNotification || (now - parseInt(lastNotification)) > oneWeek) {
-                notifyDanOfFeedback(allFeedback);
-                localStorage.setItem('lastFeedbackNotification', now.toString());
-            }
-
-            if (typeof gtag !== 'undefined') {
-                gtag('event', 'feedback_submit', {
+                gtag('event', 'feedback_open', {
                     event_category: 'engagement',
-                    event_label: 'feedback_submitted_mobile',
-                    value: allFeedback.length
-                });
-            }
-
-            alert('✅ Thanks for the feedback!');
-            closeFeedbackModal();
-        }
-
-        function notifyDanOfFeedback(allFeedback) {
-            const unreadCount = allFeedback.filter(f => {
-                const lastCheck = localStorage.getItem('danLastChecked') || '0';
-                return new Date(f.timestamp).getTime() > parseInt(lastCheck);
-            }).length;
-
-            if (typeof gtag !== 'undefined') {
-                gtag('event', 'feedback_notification', {
-                    event_category: 'admin',
-                    event_label: 'weekly_feedback_digest',
-                    value: unreadCount,
-                    total_feedback: allFeedback.length
+                    event_label: 'google_form_opened_mobile'
                 });
             }
         }
 
-        function updateFeedbackCount() {
-            const allFeedback = JSON.parse(localStorage.getItem('pumpkinInvadersFeedback') || '[]');
-            const countEl = document.getElementById('feedbackCount');
-            if (allFeedback.length > 0) {
-                countEl.textContent = `${allFeedback.length} feedback item${allFeedback.length !== 1 ? 's' : ''} submitted`;
-            }
-        }
-
-        document.getElementById('feedbackModal').addEventListener('click', function(e) {
-            if (e.target === this) {
-                closeFeedbackModal();
-            }
-        });
-
-        // Expose feedback functions to window object for onclick handlers
-        window.openFeedbackModal = openFeedbackModal;
-        window.closeFeedbackModal = closeFeedbackModal;
-        window.submitFeedback = submitFeedback;
-
-        window.showAllFeedback = function() {
-            const allFeedback = JSON.parse(localStorage.getItem('pumpkinInvadersFeedback') || '[]');
-            console.table(allFeedback);
-            localStorage.setItem('danLastChecked', Date.now().toString());
-            return allFeedback;
-        };
+        // Expose feedback function to window object for onclick handlers
+        window.openFeedbackForm = openFeedbackForm;
 
         // Track page views
         if (typeof gtag !== 'undefined') {
