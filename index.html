@@ -465,6 +465,11 @@
             }
         });
 
+        // Expose feedback functions to window object for onclick handlers
+        window.openFeedbackModal = openFeedbackModal;
+        window.closeFeedbackModal = closeFeedbackModal;
+        window.submitFeedback = submitFeedback;
+
         window.showAllFeedback = function() {
             const allFeedback = JSON.parse(localStorage.getItem('pumpkinInvadersFeedback') || '[]');
             console.table(allFeedback);
