@@ -40,11 +40,16 @@ function scaledFont(size, style = '', family = 'Arial') {
     return `${style} ${scaledSize}px ${family}`.trim();
 }
 
+// Parse URL parameters for testing/debugging
+const urlParams = new URLSearchParams(window.location.search);
+const startLives = parseInt(urlParams.get('lives')) || 3;
+const startLevel = parseInt(urlParams.get('level')) || 1;
+
 // Game state
 let score = 0;
-let lives = 3;
+let lives = startLives;
 let shield = 100;
-let level = 1;
+let level = startLevel;
 let deaths = 0; // Track number of deaths for survival challenge
 let gameOver = false;
 let gameStarted = false; // Game hasn't started until button is tapped
@@ -201,6 +206,26 @@ let activePowerUps = {
 let cloneShips = [];
 let autoShootCooldown = 0;
 let cloneFireRotationIndex = 0;
+
+function getActivePierceBulletCount() {
+    return player.bullets.reduce((count, bullet) => count + (bullet.pierce ? 1 : 0), 0);
+}
+
+// Calculate damage multiplier based on boss size
+// Big bosses (6x+): 0.5x damage (bigger target = less damage per hit)
+// Medium bosses (3x-6x): 0.75x damage
+// Small bosses (<3x): 1.0x damage (full damage)
+function getBossSizeDamageMultiplier(boss) {
+    const sizeScale = boss.width / boss.baseSize;
+
+    if (sizeScale >= 6) {
+        return 0.5; // Big bosses take half damage
+    } else if (sizeScale >= 3) {
+        return 0.75; // Medium bosses take 3/4 damage
+    } else {
+        return 1.0; // Small bosses take full damage
+    }
+}
 
 // Weapon power-up distribution functions
 function collectWeaponPowerUp(type) {
@@ -447,7 +472,14 @@ function initPumpkins() {
 
         // Progressive sizing: start at 2x, progress to 9x over 40 levels
         // Formula: scale = 2 + (level / 40) * 7, capped at 9x
-        const baseScale = 2 + Math.min(level / 40, 1) * 7;
+        // After level 25: randomize size for variety
+        let baseScale;
+        if (level > 25) {
+            // Randomize between 1.5x (small) and 9x (huge)
+            baseScale = 1.5 + Math.random() * 7.5;
+        } else {
+            baseScale = 2 + Math.min(level / 40, 1) * 7;
+        }
         const bossSize = PUMPKIN_SIZE * baseScale;
 
         // Progressive difficulty: HP increases with level (halved from original)
@@ -515,8 +547,15 @@ function initPumpkins() {
     for (let row = 0; row < PUMPKIN_ROWS; row++) {
         for (let col = 0; col < PUMPKIN_COLS; col++) {
             const isBoss = (row === 1) && bossCols.includes(col);
-            const faceType = Math.random() < 0.5 ? 'normal' : 'scary';
             const canShoot = !isBoss && Math.random() < 0.2; // 20% of non-boss pumpkins can shoot
+
+            // Randomize facial features for variety
+            const eyeStyles = ['triangle', 'round', 'oval', 'angry', 'square'];
+            const mouthStyles = ['zigzag', 'fangs', 'toothy', 'oval', 'wavy', 'grin'];
+            const noseStyles = ['triangle', 'round', 'square'];
+            const randomEyeStyle = eyeStyles[Math.floor(Math.random() * eyeStyles.length)];
+            const randomMouthStyle = mouthStyles[Math.floor(Math.random() * mouthStyles.length)];
+            const randomNoseStyle = noseStyles[Math.floor(Math.random() * noseStyles.length)];
 
             pumpkins.push({
                 x: startX + col * scaledSpacing,
@@ -529,7 +568,9 @@ function initPumpkins() {
                 exploding: false,
                 explosionFrame: 0,
                 isBoss: isBoss,
-                faceType: faceType,
+                eyeStyle: randomEyeStyle,
+                mouthStyle: randomMouthStyle,
+                noseStyle: randomNoseStyle,
                 baseSize: PUMPKIN_SIZE,
                 canShoot: canShoot,
                 shootCooldown: 0
@@ -544,6 +585,45 @@ function drawPlayer() {
     ctx.translate(player.x, player.y);
     ctx.scale(playerSizeMultiplier, playerSizeMultiplier); // Scale player visually
 
+    // Check if player has exactly 9 lives - transform into cat!
+    if (lives === 9) {
+        drawRealisticCat();
+    } else {
+        drawBat();
+    }
+
+    // Shield glow if active (same for both bat and cat)
+    if (shield > 0) {
+        const shieldAlpha = shield / 100;
+        // Color matches shield bar
+        let glowColor;
+        if (shield > 75) {
+            glowColor = '0, 255, 0'; // Green
+        } else if (shield > 50) {
+            glowColor = '136, 255, 0'; // Yellow-green
+        } else if (shield > 33) {
+            glowColor = '255, 170, 0'; // Orange
+        } else if (shield > 15) {
+            glowColor = '255, 102, 0'; // Dark orange
+        } else {
+            glowColor = '255, 0, 0'; // Red
+        }
+
+        ctx.strokeStyle = `rgba(${glowColor}, ${shieldAlpha * 0.6})`;
+        ctx.lineWidth = 3;
+        ctx.shadowColor = `rgb(${glowColor})`;
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.arc(0, 0, 35, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+    }
+
+    ctx.restore();
+}
+
+// Draw bat spaceship (original player design)
+function drawBat() {
     // Bat body (dark purple)
     ctx.fillStyle = getColor('#4a3580', '#0066cc');
     ctx.beginPath();
@@ -633,35 +713,150 @@ function drawPlayer() {
     ctx.moveTo(10, -2);
     ctx.lineTo(25, 2);
     ctx.stroke();
+}
 
-    // Shield glow if active
-    if (shield > 0) {
-        const shieldAlpha = shield / 100;
-        // Color matches shield bar
-        let glowColor;
-        if (shield > 75) {
-            glowColor = '0, 255, 0'; // Green
-        } else if (shield > 50) {
-            glowColor = '136, 255, 0'; // Yellow-green
-        } else if (shield > 33) {
-            glowColor = '255, 170, 0'; // Orange
-        } else if (shield > 15) {
-            glowColor = '255, 102, 0'; // Dark orange
-        } else {
-            glowColor = '255, 0, 0'; // Red
-        }
-        
-        ctx.strokeStyle = `rgba(${glowColor}, ${shieldAlpha * 0.6})`;
-        ctx.lineWidth = 3;
-        ctx.shadowColor = `rgb(${glowColor})`;
-        ctx.shadowBlur = 10;
-        ctx.beginPath();
-        ctx.arc(0, 0, 35, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
+// Draw realistic outline cat (9-lives transformation)
+function drawRealisticCat() {
+    // Determine glow intensity based on power-ups
+    let glowIntensity = 1;
+
+    // If has any active power-up, pulse the glow
+    const hasActivePowerUp = activePowerUps.laser || activePowerUps.autoshoot || activePowerUps.pierce;
+
+    // Maximum glow: pierce active while ANY clone has laser
+    const hasPierceWithCloneLaser = activePowerUps.pierce && cloneShips.some(clone => clone.hasLaser);
+
+    if (hasPierceWithCloneLaser) {
+        glowIntensity = 1.5; // Maximum glow
+    } else if (hasActivePowerUp) {
+        // Pulsing glow when any power-up is active
+        glowIntensity = 0.8 + Math.sin(Date.now() / 200) * 0.4; // Pulses between 0.4 and 1.2
     }
 
-    ctx.restore();
+    // Main body (with gray highlights for dimension)
+    ctx.fillStyle = '#1a1a1a';
+    ctx.beginPath();
+    ctx.ellipse(0, 2, 12, 16, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Head
+    ctx.beginPath();
+    ctx.arc(-3, -10, 11, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Ears
+    ctx.beginPath();
+    ctx.moveTo(-8, -18);
+    ctx.lineTo(-13, -28);
+    ctx.lineTo(-5, -20);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(2, -19);
+    ctx.lineTo(0, -28);
+    ctx.lineTo(5, -20);
+    ctx.closePath();
+    ctx.fill();
+
+    // Fur highlights (gray on black)
+    ctx.fillStyle = '#3a3a3a';
+    ctx.beginPath();
+    ctx.ellipse(-2, -8, 6, 4, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(2, 4, 8, 10, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Thick orange glowing outline
+    ctx.strokeStyle = '#FF6600';
+    ctx.lineWidth = 3 * glowIntensity;
+    ctx.shadowColor = '#FF6600';
+    ctx.shadowBlur = 15 * glowIntensity;
+
+    // Outline body
+    ctx.beginPath();
+    ctx.ellipse(0, 2, 12, 16, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Outline head
+    ctx.beginPath();
+    ctx.arc(-3, -10, 11, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Outline ears
+    ctx.beginPath();
+    ctx.moveTo(-8, -18);
+    ctx.lineTo(-13, -28);
+    ctx.lineTo(-5, -20);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(2, -19);
+    ctx.lineTo(0, -28);
+    ctx.lineTo(5, -20);
+    ctx.closePath();
+    ctx.stroke();
+
+    // Extra bright edge
+    ctx.strokeStyle = '#FF8C00';
+    ctx.lineWidth = 1.5 * glowIntensity;
+    ctx.shadowBlur = 20 * glowIntensity;
+    ctx.beginPath();
+    ctx.arc(-3, -10, 11, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+
+    // Green/yellow cat eyes (reflective)
+    ctx.fillStyle = '#9ACD32';
+    ctx.shadowColor = '#9ACD32';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.ellipse(-7, -11, 2, 3.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(-1, -12, 2, 3.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Vertical pupils
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.ellipse(-7, -11, 0.5, 2.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(-1, -12, 0.5, 2.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Tail
+    ctx.strokeStyle = '#FF6600';
+    ctx.lineWidth = 7 * glowIntensity;
+    ctx.shadowColor = '#FF6600';
+    ctx.shadowBlur = 12 * glowIntensity;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(8, 8);
+    ctx.quadraticCurveTo(18, 12, 15, 0);
+    ctx.stroke();
+
+    // Tail core
+    ctx.strokeStyle = '#1a1a1a';
+    ctx.lineWidth = 4;
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    ctx.moveTo(8, 8);
+    ctx.quadraticCurveTo(18, 12, 15, 0);
+    ctx.stroke();
+
+    // Orange aura (scaled by glow intensity)
+    ctx.strokeStyle = `rgba(255, 102, 0, ${0.4 * glowIntensity})`;
+    ctx.lineWidth = 3 * glowIntensity;
+    ctx.shadowColor = '#FF6600';
+    ctx.shadowBlur = 25 * glowIntensity;
+    ctx.beginPath();
+    ctx.arc(0, -2, 32, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
 }
 
 // Draw clone ship (bat design with health-based color)
@@ -782,6 +977,317 @@ function createWitch() {
     };
 }
 
+// Draw unique pumpkin eyes based on boss type or random style
+function drawPumpkinEyes(ctx, pumpkin) {
+    ctx.fillStyle = '#1a0a00';
+    ctx.strokeStyle = '#ff8800';
+    ctx.lineWidth = 1.5;
+
+    // Use stored eye style for regular pumpkins, or boss name lookup for big bosses
+    const eyeStyle = pumpkin.eyeStyle || getEyeStyleForBoss(pumpkin.name);
+
+    switch(eyeStyle) {
+        case 'triangle':
+            // Larger triangle eyes
+            ctx.beginPath();
+            ctx.moveTo(-13, -6);
+            ctx.lineTo(-7, 0);
+            ctx.lineTo(-13, 6);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(13, -6);
+            ctx.lineTo(7, 0);
+            ctx.lineTo(13, 6);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            break;
+        case 'round':
+            // Larger round eyes (radius 5 instead of 4)
+            ctx.beginPath();
+            ctx.arc(-10, 0, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(10, 0, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            break;
+        case 'oval':
+            // Larger oval eyes
+            ctx.beginPath();
+            ctx.ellipse(-10, 0, 4, 6, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.ellipse(10, 0, 4, 6, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            break;
+        case 'angry':
+            // Larger angry eyes
+            ctx.beginPath();
+            ctx.moveTo(-15, -9);
+            ctx.lineTo(-6, -3);
+            ctx.lineTo(-10, 3);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(15, -9);
+            ctx.lineTo(6, -3);
+            ctx.lineTo(10, 3);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            break;
+        case 'square':
+            // Larger square eyes
+            ctx.fillRect(-15, -4, 7, 7);
+            ctx.strokeRect(-15, -4, 7, 7);
+            ctx.fillRect(8, -4, 7, 7);
+            ctx.strokeRect(8, -4, 7, 7);
+            break;
+        case 'crescent':
+            ctx.beginPath();
+            ctx.arc(-10, 0, 5, 0.2, Math.PI - 0.2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(10, 0, 5, 0.2, Math.PI - 0.2);
+            ctx.fill();
+            ctx.stroke();
+            break;
+        case 'diamond':
+            ctx.beginPath();
+            ctx.moveTo(-10, -6);
+            ctx.lineTo(-6, 0);
+            ctx.lineTo(-10, 6);
+            ctx.lineTo(-14, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(10, -6);
+            ctx.lineTo(14, 0);
+            ctx.lineTo(10, 6);
+            ctx.lineTo(6, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            break;
+        case 'star':
+            drawStar(ctx, -10, 0, 5, 5);
+            drawStar(ctx, 10, 0, 5, 5);
+            break;
+        case 'spiral':
+            for (let i = 0; i < 3; i++) {
+                ctx.beginPath();
+                ctx.arc(-10, 0, 2 + i * 2, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(10, 0, 2 + i * 2, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            break;
+    }
+}
+
+function drawStar(ctx, cx, cy, spikes, outerRadius) {
+    const innerRadius = outerRadius / 2;
+    let rot = Math.PI / 2 * 3;
+    const step = Math.PI / spikes;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - outerRadius);
+    for (let i = 0; i < spikes; i++) {
+        ctx.lineTo(cx + Math.cos(rot) * outerRadius, cy + Math.sin(rot) * outerRadius);
+        rot += step;
+        ctx.lineTo(cx + Math.cos(rot) * innerRadius, cy + Math.sin(rot) * innerRadius);
+        rot += step;
+    }
+    ctx.lineTo(cx, cy - outerRadius);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+}
+
+function drawPumpkinMouth(ctx, pumpkin) {
+    ctx.fillStyle = '#1a0a00';
+    ctx.strokeStyle = '#ff8800';
+    ctx.lineWidth = 1.5;
+
+    // Use stored nose style for regular pumpkins, or boss name lookup for big bosses
+    const noseStyle = pumpkin.noseStyle || getNoseStyleForBoss(pumpkin.name);
+    if (noseStyle === 'triangle') {
+        // Larger triangle nose
+        ctx.beginPath();
+        ctx.moveTo(0, 3);
+        ctx.lineTo(-4, 9);
+        ctx.lineTo(4, 9);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+    } else if (noseStyle === 'round') {
+        // Larger round nose
+        ctx.beginPath();
+        ctx.arc(0, 6, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+    } else if (noseStyle === 'square') {
+        // Larger square nose
+        ctx.fillRect(-4, 3, 8, 8);
+        ctx.strokeRect(-4, 3, 8, 8);
+    }
+
+    // Use stored mouth style for regular pumpkins, or boss name lookup for big bosses
+    const mouthStyle = pumpkin.mouthStyle || getMouthStyleForBoss(pumpkin.name);
+    switch(mouthStyle) {
+        case 'zigzag':
+            // Larger zigzag mouth
+            ctx.beginPath();
+            ctx.moveTo(-12, 13);
+            ctx.lineTo(-8, 10);
+            ctx.lineTo(-4, 13);
+            ctx.lineTo(0, 10);
+            ctx.lineTo(4, 13);
+            ctx.lineTo(8, 10);
+            ctx.lineTo(12, 13);
+            ctx.fill();
+            ctx.stroke();
+            break;
+        case 'fangs':
+            // Larger fangs mouth
+            ctx.beginPath();
+            ctx.moveTo(-14, 10);
+            ctx.lineTo(-11, 13);
+            ctx.lineTo(-8, 10);
+            ctx.lineTo(-6, 15);
+            ctx.lineTo(-4, 10);
+            ctx.lineTo(-2, 13);
+            ctx.lineTo(0, 10);
+            ctx.lineTo(2, 13);
+            ctx.lineTo(4, 10);
+            ctx.lineTo(6, 15);
+            ctx.lineTo(8, 10);
+            ctx.lineTo(11, 13);
+            ctx.lineTo(14, 10);
+            ctx.fill();
+            ctx.stroke();
+            break;
+        case 'toothy':
+            // Larger toothy mouth
+            ctx.beginPath();
+            ctx.moveTo(-14, 10);
+            ctx.lineTo(-14, 15);
+            ctx.lineTo(14, 15);
+            ctx.lineTo(14, 10);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.strokeStyle = '#ff8800';
+            for (let i = -12; i <= 12; i += 4) {
+                ctx.beginPath();
+                ctx.moveTo(i, 10);
+                ctx.lineTo(i, 15);
+                ctx.stroke();
+            }
+            break;
+        case 'oval':
+            // Larger oval mouth
+            ctx.beginPath();
+            ctx.ellipse(0, 13, 7, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            break;
+        case 'wavy':
+            // Larger wavy mouth
+            ctx.beginPath();
+            ctx.moveTo(-14, 13);
+            ctx.quadraticCurveTo(-9, 15, -5, 13);
+            ctx.quadraticCurveTo(0, 11, 5, 13);
+            ctx.quadraticCurveTo(9, 15, 14, 13);
+            ctx.lineTo(14, 10);
+            ctx.quadraticCurveTo(9, 12, 5, 10);
+            ctx.quadraticCurveTo(0, 8, -5, 10);
+            ctx.quadraticCurveTo(-9, 12, -14, 10);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            break;
+        case 'grin':
+            // Larger grin mouth
+            ctx.beginPath();
+            ctx.arc(0, 5, 13, 0.2, Math.PI - 0.2);
+            ctx.lineTo(11, 11);
+            ctx.arc(0, 8, 11, Math.PI - 0.2, 0.2, true);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            break;
+        case 'frown':
+            // Larger frown mouth
+            ctx.beginPath();
+            ctx.arc(0, 19, 13, Math.PI + 0.5, -0.5);
+            ctx.lineTo(11, 15);
+            ctx.arc(0, 17, 11, -0.5, Math.PI + 0.5, true);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            break;
+        case 'gap':
+            // Larger gap mouth
+            ctx.beginPath();
+            ctx.moveTo(-14, 10);
+            ctx.lineTo(-14, 15);
+            ctx.lineTo(-2, 15);
+            ctx.lineTo(-2, 10);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(2, 10);
+            ctx.lineTo(2, 15);
+            ctx.lineTo(14, 15);
+            ctx.lineTo(14, 10);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            break;
+    }
+}
+
+function getEyeStyleForBoss(name) {
+    const eyeMap = {
+        'LeBoss James': 'round', 'Boss Hog': 'oval', 'Mike Tyson': 'angry',
+        'Pumpkin Librarian': 'square', 'The Great Pumpkin': 'star', 'Pumpzilla': 'diamond',
+        'Count Pumpula': 'crescent', 'Gourdfather': 'spiral', 'Witch Hazel': 'triangle',
+        'Jack Skellington': 'oval', 'Pumpkin Spice': 'round', 'Smashing Pumpkins': 'square',
+        'Pumpkin Pi': 'diamond', 'Squashbuckler': 'angry', 'Melon Lord': 'crescent',
+        'Pumpking Kong': 'star', 'Cinderella': 'spiral'
+    };
+    // Default to triangle for regular pumpkins (not in map)
+    return eyeMap[name] || 'triangle';
+}
+
+function getNoseStyleForBoss(name) {
+    const noseMap = {'Boss Hog': 'round', 'Pumpkin Pi': 'square', 'Witch Hazel': 'round'};
+    return noseMap[name] || 'triangle';
+}
+
+function getMouthStyleForBoss(name) {
+    const mouthMap = {
+        'LeBoss James': 'grin', 'Boss Hog': 'toothy', 'Mike Tyson': 'fangs',
+        'Pumpkin Librarian': 'oval', 'The Great Pumpkin': 'wavy', 'Pumpzilla': 'fangs',
+        'Count Pumpula': 'fangs', 'Gourdfather': 'toothy', 'Witch Hazel': 'grin',
+        'Jack Skellington': 'zigzag', 'Pumpkin Spice': 'wavy', 'Smashing Pumpkins': 'fangs',
+        'Pumpkin Pi': 'gap', 'Squashbuckler': 'toothy', 'Melon Lord': 'frown',
+        'Pumpking Kong': 'fangs', 'Cinderella': 'grin'
+    };
+    return mouthMap[name] || 'zigzag';
+}
+
 // Draw pumpkin with different damage stages
 function drawPumpkin(pumpkin) {
     if (!pumpkin.alive) return;
@@ -860,7 +1366,7 @@ function drawPumpkin(pumpkin) {
 
         ctx.fillStyle = gradient;
         ctx.beginPath();
-        ctx.arc(0, 0, imgSize/2 + 10, 0, Math.PI * 2);
+        ctx.arc(0, 0, outerGlowRadius, 0, Math.PI * 2);
         ctx.fill();
 
         // Clip to circular shape to cut off dark corners of jpg
@@ -938,90 +1444,17 @@ function drawPumpkin(pumpkin) {
     }
 
     if (pumpkin.damage >= damageForEyes) {
-        if (pumpkin.faceType === 'scary') {
-            // Scary eyes (angry slanted)
-            ctx.beginPath();
-            ctx.moveTo(-14, -8);
-            ctx.lineTo(-6, -3);
-            ctx.lineTo(-10, 2);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-
-            ctx.beginPath();
-            ctx.moveTo(14, -8);
-            ctx.lineTo(6, -3);
-            ctx.lineTo(10, 2);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-        } else {
-            // Normal eyes (triangles)
-            ctx.beginPath();
-            ctx.moveTo(-12, -5);
-            ctx.lineTo(-8, 0);
-            ctx.lineTo(-12, 5);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-
-            ctx.beginPath();
-            ctx.moveTo(12, -5);
-            ctx.lineTo(8, 0);
-            ctx.lineTo(12, 5);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-        }
+        // Draw eyes based on boss name for unique faces
+        drawPumpkinEyes(ctx, pumpkin);
     }
 
     if (pumpkin.damage >= damageForNose) {
-        // Nose (small triangle)
-        ctx.beginPath();
-        ctx.moveTo(0, 3);
-        ctx.lineTo(-3, 8);
-        ctx.lineTo(3, 8);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        if (pumpkin.faceType === 'scary') {
-            // Scary mouth (jagged with fangs)
-            ctx.beginPath();
-            ctx.moveTo(-12, 10);
-            ctx.lineTo(-10, 12);
-            ctx.lineTo(-8, 10);
-            ctx.lineTo(-6, 14);
-            ctx.lineTo(-4, 10);
-            ctx.lineTo(-2, 12);
-            ctx.lineTo(0, 10);
-            ctx.lineTo(2, 12);
-            ctx.lineTo(4, 10);
-            ctx.lineTo(6, 14);
-            ctx.lineTo(8, 10);
-            ctx.lineTo(10, 12);
-            ctx.lineTo(12, 10);
-            ctx.fill();
-            ctx.stroke();
-        } else {
-            // Normal mouth (zigzag)
-            ctx.beginPath();
-            ctx.moveTo(-10, 12);
-            ctx.lineTo(-7, 10);
-            ctx.lineTo(-4, 12);
-            ctx.lineTo(0, 10);
-            ctx.lineTo(4, 12);
-            ctx.lineTo(7, 10);
-            ctx.lineTo(10, 12);
-            ctx.fill();
-            ctx.stroke();
-        }
+        // Draw nose and mouth based on boss name for unique faces
+        drawPumpkinMouth(ctx, pumpkin);
     }
 
-    // Draw boss-specific accessories
+    // Draw boss-specific accessories and unique features
     if (pumpkin.name === 'LeBoss James') {
-        // Draw beard (scaled)
-        const s = SCALE;
         ctx.fillStyle = '#1a0a00';
         ctx.beginPath();
         ctx.moveTo(-8, 12);
@@ -1042,58 +1475,271 @@ function drawPumpkin(pumpkin) {
         ctx.lineTo(-6, 14);
         ctx.closePath();
         ctx.fill();
+        ctx.fillStyle = '#FF6347';
+        ctx.fillRect(-18, -12, 36, 4);
     } else if (pumpkin.name === 'Boss Hog') {
-        // Draw top hat (scaled)
-        const s = SCALE;
         ctx.fillStyle = '#000000';
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 1;
-
-        // Hat brim
         ctx.fillRect(-15, -26, 30, 3);
         ctx.strokeRect(-15, -26, 30, 3);
-
-        // Hat top
         ctx.fillRect(-10, -40, 20, 14);
         ctx.strokeRect(-10, -40, 20, 14);
-
-        // Hat band
         ctx.fillStyle = '#8B0000';
         ctx.fillRect(-10, -28, 20, 2);
-    } else if (pumpkin.name === 'Pumpkin Librarian') {
-        // Draw horn rim glasses
-        ctx.strokeStyle = '#000000';
-        ctx.fillStyle = '#87CEEB'; // Light blue lens tint
+        ctx.strokeStyle = '#FFD700';
         ctx.lineWidth = 2;
-
-        // Left lens
+        ctx.beginPath();
+        ctx.arc(10, -3, 5, 0, Math.PI * 2);
+        ctx.stroke();
+    } else if (pumpkin.name === 'Pumpkin Librarian') {
+        ctx.strokeStyle = '#000000';
+        ctx.fillStyle = 'rgba(135, 206, 235, 0.3)';
+        ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(-8, -5, 6, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
-
-        // Right lens
         ctx.beginPath();
         ctx.arc(8, -5, 6, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
-
-        // Bridge
         ctx.beginPath();
         ctx.moveTo(-2, -5);
         ctx.lineTo(2, -5);
         ctx.stroke();
-
-        // Left temple
         ctx.beginPath();
         ctx.moveTo(-14, -5);
         ctx.lineTo(-18, -5);
         ctx.stroke();
-
-        // Right temple
         ctx.beginPath();
         ctx.moveTo(14, -5);
         ctx.lineTo(18, -5);
+        ctx.stroke();
+    } else if (pumpkin.name === 'Mike Tyson') {
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-15, -8);
+        ctx.lineTo(-13, -5);
+        ctx.lineTo(-15, -2);
+        ctx.lineTo(-13, 1);
+        ctx.stroke();
+        ctx.fillStyle = '#FFD700';
+        ctx.fillRect(-20, 5, 40, 6);
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(-6, 6, 12, 4);
+        ctx.fillStyle = '#FFD700';
+        ctx.font = scaledFont(8);
+        ctx.fillText('★', 0, 9);
+    } else if (pumpkin.name === 'Darth Pumpkin') {
+        ctx.fillStyle = '#000000';
+        ctx.strokeStyle = '#333333';
+        ctx.lineWidth = 1;
+        ctx.fillRect(-16, -20, 32, 8);
+        ctx.fillRect(-8, 8, 16, 8);
+        ctx.fillStyle = '#555555';
+        ctx.fillRect(-6, 10, 5, 4);
+        ctx.fillRect(1, 10, 5, 4);
+    } else if (pumpkin.name === 'Pumpkin Queen') {
+        ctx.fillStyle = '#FFD700';
+        ctx.strokeStyle = '#FFA500';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 5; i++) {
+            const x = -16 + i * 8;
+            ctx.beginPath();
+            ctx.moveTo(x, -22);
+            ctx.lineTo(x + 3, -28);
+            ctx.lineTo(x + 6, -22);
+            ctx.fill();
+            ctx.stroke();
+        }
+        ctx.fillRect(-16, -22, 32, 3);
+        ctx.fillStyle = '#FF0066';
+        for (let i = 0; i < 5; i++) {
+            ctx.beginPath();
+            ctx.arc(-12 + i * 6, -26, 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    } else if (pumpkin.name === 'Pumpkin King') {
+        ctx.fillStyle = '#FFD700';
+        ctx.fillRect(-12, -28, 24, 4);
+        for (let i = 0; i < 4; i++) {
+            ctx.beginPath();
+            ctx.moveTo(-10 + i * 7, -24);
+            ctx.lineTo(-8 + i * 7, -32);
+            ctx.lineTo(-6 + i * 7, -24);
+            ctx.fill();
+        }
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(-18, 12, 36, 4);
+        ctx.fillStyle = '#000000';
+        for (let i = 0; i < 7; i++) {
+            ctx.fillRect(-15 + i * 5, 13, 2, 2);
+        }
+    } else if (pumpkin.name === 'Pumpkinator') {
+        ctx.fillStyle = '#FF0000';
+        ctx.shadowColor = '#FF0000';
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.arc(-8, -2, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(8, -2, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = '#888888';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(-12, 4, 3, 0, Math.PI * 2);
+        ctx.stroke();
+    } else if (pumpkin.name === 'Pumpkin Thanos') {
+        ctx.fillStyle = '#FFD700';
+        ctx.fillRect(-22, -5, 8, 12);
+        const stones = ['#9400D3', '#0000FF', '#00FF00', '#FFFF00', '#FF6600', '#FF0000'];
+        for (let i = 0; i < 6; i++) {
+            ctx.fillStyle = stones[i];
+            ctx.beginPath();
+            ctx.arc(-18 + (i % 3) * 3, -3 + Math.floor(i / 3) * 3, 1.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.strokeStyle = '#4B0082';
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 3; i++) {
+            ctx.beginPath();
+            ctx.moveTo(-6 + i * 4, 14);
+            ctx.lineTo(-4 + i * 4, 17);
+            ctx.stroke();
+        }
+    } else if (pumpkin.name === 'The Pumpkinkeeper') {
+        ctx.strokeStyle = '#8B7355';
+        ctx.fillStyle = '#CD853F';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(-12, -8, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(12, 6, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.strokeStyle = '#FFD700';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(15, 8);
+        ctx.quadraticCurveTo(18, 12, 15, 16);
+        ctx.stroke();
+    } else if (pumpkin.name === 'The Pumpkin Overseer') {
+        ctx.fillStyle = '#9400D3';
+        ctx.shadowColor = '#9400D3';
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.ellipse(0, -12, 5, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#000000';
+        ctx.beginPath();
+        ctx.arc(0, -12, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(-1, -13, 1, 0, Math.PI * 2);
+        ctx.fill();
+    } else if (pumpkin.name === 'Pumpkin Loki') {
+        ctx.fillStyle = '#FFD700';
+        ctx.strokeStyle = '#DAA520';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-15, -18);
+        ctx.quadraticCurveTo(-18, -28, -14, -35);
+        ctx.lineTo(-12, -34);
+        ctx.quadraticCurveTo(-15, -27, -13, -18);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(15, -18);
+        ctx.quadraticCurveTo(18, -28, 14, -35);
+        ctx.lineTo(12, -34);
+        ctx.quadraticCurveTo(15, -27, 13, -18);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillRect(-16, -20, 32, 4);
+    } else if (pumpkin.name === 'Pumpkineto') {
+        ctx.fillStyle = '#8B0000';
+        ctx.strokeStyle = '#660000';
+        ctx.lineWidth = 1;
+        ctx.fillRect(-16, -20, 32, 10);
+        ctx.fillStyle = '#660000';
+        ctx.fillRect(-12, -18, 8, 6);
+        ctx.fillRect(4, -18, 8, 6);
+        ctx.beginPath();
+        ctx.moveTo(-16, -10);
+        ctx.lineTo(-18, 0);
+        ctx.lineTo(-16, 0);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(16, -10);
+        ctx.lineTo(18, 0);
+        ctx.lineTo(16, 0);
+        ctx.fill();
+    } else if (pumpkin.name === 'Pumpkin Predator') {
+        ctx.fillStyle = '#4A4A4A';
+        ctx.fillRect(-14, -8, 28, 16);
+        ctx.strokeStyle = '#333333';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-10, 8);
+        ctx.lineTo(-14, 12);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-3, 8);
+        ctx.lineTo(-6, 12);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(10, 8);
+        ctx.lineTo(14, 12);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(3, 8);
+        ctx.lineTo(6, 12);
+        ctx.stroke();
+    } else if (pumpkin.name === 'The Pumpkin Controller') {
+        ctx.strokeStyle = '#000000';
+        ctx.fillStyle = '#1E90FF';
+        ctx.lineWidth = 2;
+        ctx.fillRect(-18, -8, 4, 12);
+        ctx.fillRect(14, -8, 4, 12);
+        ctx.beginPath();
+        ctx.moveTo(14, -2);
+        ctx.lineTo(10, 6);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-16, -8);
+        ctx.lineTo(-16, -18);
+        ctx.stroke();
+        ctx.fillStyle = '#FF0000';
+        ctx.beginPath();
+        ctx.arc(-16, -18, 2, 0, Math.PI * 2);
+        ctx.fill();
+    } else if (pumpkin.name === 'Cyber Pumpkin') {
+        ctx.fillStyle = '#FF0000';
+        ctx.shadowColor = '#FF0000';
+        ctx.shadowBlur = 8;
+        ctx.fillRect(6, -8, 10, 8);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#000000';
+        ctx.beginPath();
+        ctx.arc(11, -4, 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#00FF00';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(16, -4);
+        ctx.lineTo(19, -4);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(16, -2);
+        ctx.lineTo(19, -2);
         ctx.stroke();
     }
 
@@ -2758,7 +3404,11 @@ async function downloadScreenshot() {
     });
 }
 
-// Make screenshot function globally accessible
+// Make sharing functions globally accessible for HTML onclick handlers
+window.shareToTwitter = shareToTwitter;
+window.shareToDiscord = shareToDiscord;
+window.copyShareLink = copyShareLink;
+window.downloadScreenshot = downloadScreenshot;
 window.captureGameScreenshot = downloadScreenshot;
 
 // VIRAL FEATURE: Daily Challenge System (Section 4)
@@ -3070,12 +3720,14 @@ function update() {
                             player.powerUp !== 'laser' &&
                             player.bullets.length < maxBulletsMobile1;
 
+        const pierceLimitReached = player.powerUp === 'pierceknife' && getActivePierceBulletCount() >= 7;
+
         const clonesEligible = autoShootCooldown <= 0 &&
                                player.bullets.length < maxBulletsMobile1;
 
         let shotsFired = 0;
 
-        if (canMainShoot) {
+        if (canMainShoot && !pierceLimitReached) {
             player.bullets.push({
                 x: player.x,
                 y: player.y - 20,
@@ -3154,7 +3806,8 @@ function update() {
 
                 // ARELLA teleportation dodge - increases as health decreases
                 if (bigBoss.isArella && !bigBoss.teleporting) {
-                    const healthPercent = ((bigBoss.maxDamage - bigBoss.damage) / bigBoss.maxDamage) * 100;
+                    const healthRemaining = bigBoss.maxDamage - bigBoss.damage;
+                    const healthPercent = (healthRemaining / bigBoss.maxDamage) * 100;
                     let dodgeChance = 0.2; // Default: 1 in 5 (20%)
 
                     if (healthPercent < 15) {
@@ -3165,13 +3818,19 @@ function update() {
                         dodgeChance = 0.25; // 1 in 4 (25%)
                     }
 
-                    if (Math.random() < dodgeChance) {
+                    let shouldTeleport = false;
+                    if (healthRemaining <= 1000) {
+                        shouldTeleport = true;
+                    } else if (Math.random() < dodgeChance) {
+                        shouldTeleport = true;
+                    }
+
+                    if (shouldTeleport) {
                         bigBoss.teleporting = true;
                         bigBoss.teleportFrame = 0;
                         // Teleport to random location - much wider range for more dramatic jumps
                         bigBoss.targetX = (Math.random() * (WIDTH - 300)) + 150;
                         bigBoss.targetY = HEIGHT * (0.1 + Math.random() * 0.4); // 10-50% down screen (wider vertical range)
-                        const healthRemaining = bigBoss.maxDamage - bigBoss.damage;
                         if (healthRemaining <= 100) {
                             const minSize = Math.min(bigBoss.minSize || bigBoss.baseSize * 2, bigBoss.maxSize || bigBoss.width);
                             const maxSize = Math.max(bigBoss.minSize || bigBoss.baseSize * 2, bigBoss.maxSize || bigBoss.width);
@@ -3191,12 +3850,18 @@ function update() {
                     bulletDamage = 1 + 1 + Math.floor((level - 10) / 5);
                 }
 
+                // Apply size-based damage reduction
+                const sizeDamageMultiplier = getBossSizeDamageMultiplier(bigBoss);
+
                 if (bullet.pierce) {
-                    // Pierce: base 5 damage + 2 per scaling tier (boss levels only)
-                    const pierceDamage = 5 + (Math.floor((level - 10) / 5) * 2);
-                    bigBoss.damage += level >= 10 ? pierceDamage : 5;
+                    // Pierce: base 5 damage + 2 per scaling tier (boss levels only), capped at 10
+                    const scalingDamage = level >= 10
+                        ? 5 + (Math.floor((level - 10) / 5) * 2)
+                        : 5;
+                    const pierceDamage = Math.min(10, scalingDamage);
+                    bigBoss.damage += pierceDamage * sizeDamageMultiplier;
                 } else {
-                    bigBoss.damage += bulletDamage;
+                    bigBoss.damage += bulletDamage * sizeDamageMultiplier;
                     playHitSound();
                 }
 
@@ -3533,7 +4198,10 @@ function update() {
                 updateUI();
             } else if (powerUp.type === 'clone') {
                 // Add a new clone ship with 3 health
-                const offset = cloneShips.length === 0 ? -60 : 60;
+                // Use larger offset when player is cat (9 lives) to prevent overlap
+                const isCat = lives === 9;
+                const baseSpread = isCat ? 80 : 60;
+                const offset = cloneShips.length === 0 ? -baseSpread : baseSpread;
                 cloneShips.push({
                     x: player.x + offset,
                     y: player.y,
@@ -3622,12 +4290,15 @@ function update() {
     // Update clone ships (they last until a life is lost)
     cloneShips.forEach((clone, index) => {
         // Position clones around the player
+        // Use larger spacing when player is cat (9 lives) to prevent overlap
+        const isCat = lives === 9;
+        const baseSpread = isCat ? 80 : 60;
+
         const totalClones = cloneShips.length;
         if (totalClones === 1) {
-            clone.x = player.x - 60;
+            clone.x = player.x - baseSpread;
         } else {
-            const spread = 60;
-            const offset = (index - (totalClones - 1) / 2) * spread;
+            const offset = (index - (totalClones - 1) / 2) * baseSpread;
             clone.x = player.x + offset;
         }
         clone.y = player.y;
@@ -3700,7 +4371,8 @@ function update() {
             if (laserX - laserWidth / 2 < bigBoss.x + halfSize &&
                 laserX + laserWidth / 2 > bigBoss.x - halfSize) {
 
-                bigBoss.damage += 0.3; // Continuous damage
+                const sizeDamageMultiplier = getBossSizeDamageMultiplier(bigBoss);
+                bigBoss.damage += 0.3 * sizeDamageMultiplier; // Continuous damage with size scaling
                 laserHittingSomething = true;
 
                 if (bigBoss.damage >= bigBoss.maxDamage) {
@@ -3885,7 +4557,7 @@ function update() {
             if (bigBoss.explosionFrame > 15) {
                 bigBoss.alive = false;
                 // Trigger level complete cutscene
-                levelCompleteMessage = 'Level ' + level + ' Complete!\n' + bigBoss.name + ' Defeated!';
+                levelCompleteMessage = 'Level ' + level + ' Complete!\n' + bigBoss.name + '\nDefeated!';
                 levelComplete = true;
                 levelCompleteTimer = 180; // 3 seconds at 60fps
 
@@ -4140,10 +4812,12 @@ function draw() {
     // Draw score in center (behind everything)
     if (!gameOver && !shipDestroying) {
         ctx.save();
-        ctx.font = `bold ${48 * SCALE}px "Courier New", monospace`;
-        ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+        ctx.font = `${24 * SCALE}px "Courier New", monospace`;
+        ctx.fillStyle = '#FFFACD';
+        ctx.shadowColor = '#FFD700';
+        ctx.shadowBlur = 8 * SCALE;
         ctx.textAlign = 'center';
-        ctx.fillText('Score: ' + score, WIDTH / 2, 50 * SCALE);
+        ctx.fillText(score, WIDTH / 2, 20 * SCALE);
         ctx.restore();
     }
 
@@ -4190,15 +4864,16 @@ function draw() {
         ctx.fillText('SHIELD: ' + Math.floor(shield), WIDTH / 2, barY + 12);
     }
 
-    // Draw ship or destruction
+    // Draw clone ships first (behind main ship)
+    for (let clone of cloneShips) {
+        drawCloneShip(clone);
+    }
+
+    // Draw main ship or destruction (on top of clones)
     if (shipDestroying) {
         drawShipDestruction();
     } else {
         drawPlayer();
-    }
-
-    for (let clone of cloneShips) {
-        drawCloneShip(clone);
     }
 
     // VIRAL FEATURE: Draw daily challenge badge (Section 9)
@@ -4501,13 +5176,42 @@ function draw() {
         ctx.shadowColor = '#00ff00';
         ctx.shadowBlur = 20 * SCALE;
 
-        // Split message into lines and draw each one
-        const lines = levelCompleteMessage.split('\n');
-        const lineHeight = 60 * SCALE;
-        const startY = HEIGHT / 2 - ((lines.length - 1) * lineHeight / 2);
+        // Split message into lines and wrap text that's too wide
+        const rawLines = levelCompleteMessage.split('\n');
+        const maxWidth = WIDTH * 0.9; // Use 90% of screen width
+        const wrappedLines = [];
 
-        for (let i = 0; i < lines.length; i++) {
-            ctx.fillText(lines[i], WIDTH / 2, startY + (i * lineHeight));
+        for (let line of rawLines) {
+            const textWidth = ctx.measureText(line).width;
+            if (textWidth > maxWidth) {
+                // Text is too wide, split into words and wrap
+                const words = line.split(' ');
+                let currentLine = '';
+
+                for (let word of words) {
+                    const testLine = currentLine ? currentLine + ' ' + word : word;
+                    const testWidth = ctx.measureText(testLine).width;
+
+                    if (testWidth > maxWidth && currentLine) {
+                        wrappedLines.push(currentLine);
+                        currentLine = word;
+                    } else {
+                        currentLine = testLine;
+                    }
+                }
+                if (currentLine) {
+                    wrappedLines.push(currentLine);
+                }
+            } else {
+                wrappedLines.push(line);
+            }
+        }
+
+        const lineHeight = 60 * SCALE;
+        const startY = HEIGHT / 2 - ((wrappedLines.length - 1) * lineHeight / 2);
+
+        for (let i = 0; i < wrappedLines.length; i++) {
+            ctx.fillText(wrappedLines[i], WIDTH / 2, startY + (i * lineHeight));
         }
 
         ctx.shadowBlur = 0;
@@ -4829,46 +5533,14 @@ if (isMobile) {
         e.preventDefault();
         const rect = canvas.getBoundingClientRect();
 
-        // Handle start button tap
-        if (!gameStarted || (paused && !showSettings && !gameOver)) {
-            handleStartOrResumeInput();
-            return;
-        }
-
-        // Handle high scores dismissal - show start button instead of auto-restart
-        if (showHighScores) {
-            showHighScores = false;
-            gameOver = false; // End game over state
-            gameStarted = false; // Show start button
-            return;
-        }
-
-        // Handle game over tap to continue
-        if (gameOver && !enteringName && !showHighScores) {
-            // Check if this is a high score
-            if (isHighScore(score)) {
-                // Use native prompt for mobile name entry
-                const name = prompt('NEW HIGH SCORE!\nScore: ' + score + '\n\nEnter your name:', '');
-                if (name !== null) { // Allow empty string
-                    playerName = name.slice(0, 15); // Limit to 15 characters
-                    addHighScore(playerName || 'Anonymous', score, 'mobile');
-                }
-                showHighScores = true;
-            } else {
-                showHighScores = true;
-            }
-            return;
-        }
-
-        // Handle tap to restart from high scores
-        if (showHighScores) {
+        // Handle tap to restart from high scores (check BEFORE start/resume)
+        if (showHighScores && gameOver) {
             // Restart game
             score = 0;
             lives = 3;
             shield = 100;
             level = 1;
             deaths = 0;
-            gameOver = false;
             shipDestroying = false;
             shipDestroyFrame = 0;
             shipRotation = 0;
@@ -4889,6 +5561,7 @@ if (isMobile) {
             player.x = WIDTH / 2;
             player.y = HEIGHT - (60 * SCALE);
             player.bullets = [];
+            pumpkins = []; // Clear old pumpkins before initPumpkins()
             enemyGrenades = [];
             bossProjectiles = [];
             powerUps = [];
@@ -4902,9 +5575,41 @@ if (isMobile) {
                 autoshoot: { active: false, timer: 0 },
                 pierceknife: { active: false, timer: 0 }
             };
+            gameOver = false; // Set this AFTER clearing arrays to prevent race condition
+            gameStarted = true; // Game is now running
             shuffleBossNames();
             initPumpkins();
             updateUI();
+            return;
+        }
+
+        // Handle start button tap (but not if showing high scores)
+        if ((!gameStarted || (paused && !showSettings && !gameOver)) && !showHighScores) {
+            handleStartOrResumeInput();
+            return;
+        }
+
+        // Handle high scores dismissal with ESC - show start button instead of auto-restart
+        if (showHighScores && !gameOver) {
+            showHighScores = false;
+            gameStarted = false; // Show start button
+            return;
+        }
+
+        // Handle game over tap to continue
+        if (gameOver && !enteringName && !showHighScores) {
+            // Check if this is a high score
+            if (isHighScore(score)) {
+                // Use native prompt for mobile name entry
+                const name = prompt('NEW HIGH SCORE!\nScore: ' + score + '\n\nEnter your name:', '');
+                if (name !== null) { // Allow empty string
+                    playerName = name.slice(0, 15); // Limit to 15 characters
+                    addHighScore(playerName || 'Anonymous', score, 'mobile');
+                }
+                showHighScores = true;
+            } else {
+                showHighScores = true;
+            }
             return;
         }
 
@@ -5085,12 +5790,14 @@ document.addEventListener('keydown', (e) => {
                             player.powerUp !== 'laser' &&
                             player.bullets.length < maxBulletsMobile3;
 
+        const pierceLimitReached = player.powerUp === 'pierceknife' && getActivePierceBulletCount() >= 7;
+
         const canCloneShoot = !gameOver && !shipDestroying && !levelComplete &&
                              player.bullets.length < maxBulletsMobile3;
 
         let manualShots = 0;
 
-        if (canMainShoot) {
+        if (canMainShoot && !pierceLimitReached) {
             player.bullets.push({
                 x: player.x,
                 y: player.y - 20,
@@ -5204,7 +5911,6 @@ document.addEventListener('keydown', (e) => {
             shield = 100;
             level = 1;
             deaths = 0;
-            gameOver = false;
             shipDestroying = false;
             shipDestroyFrame = 0;
             shipRotation = 0;
@@ -5225,6 +5931,7 @@ document.addEventListener('keydown', (e) => {
             player.x = WIDTH / 2;
             player.y = HEIGHT - (60 * SCALE);
             player.bullets = [];
+            pumpkins = []; // Clear old pumpkins before initPumpkins()
             enemyGrenades = [];
             bossProjectiles = [];
             powerUps = [];
@@ -5238,6 +5945,7 @@ document.addEventListener('keydown', (e) => {
                 autoshoot: { active: false, timer: 0 },
                 pierceknife: { active: false, timer: 0 }
             };
+            gameOver = false; // Set this AFTER clearing arrays to prevent race condition
             shuffleBossNames();
             initPumpkins();
             updateUI();
@@ -5252,7 +5960,6 @@ document.addEventListener('keydown', (e) => {
         shield = 100;
         level = 1;
         deaths = 0;
-        gameOver = false;
         shipDestroying = false;
         shipDestroyFrame = 0;
         levelComplete = false;
@@ -5264,9 +5971,14 @@ document.addEventListener('keydown', (e) => {
         pumpkinSpeed = (isMobile ? 0.5 : 1) * SCALE;
         bigBossMode = false;
         bigBoss = null;
+        witch = null;
+        extraLifeToken = null;
+        witchLevelInterval = 0;
+        lastWitchLevel = 0;
         player.x = WIDTH / 2;
         player.y = HEIGHT - (60 * SCALE);
         player.bullets = [];
+        pumpkins = []; // Clear old pumpkins before initPumpkins()
         enemyGrenades = [];
         bossProjectiles = [];
         powerUps = [];
@@ -5280,6 +5992,7 @@ document.addEventListener('keydown', (e) => {
             autoshoot: { active: false, timer: 0 },
             pierceknife: { active: false, timer: 0 }
         };
+        gameOver = false; // Set this AFTER clearing arrays to prevent race condition
         shuffleBossNames();
         initPumpkins();
         updateUI();

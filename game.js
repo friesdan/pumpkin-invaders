@@ -4,11 +4,16 @@ const ctx = canvas.getContext('2d');
 const WIDTH = canvas.width;
 const HEIGHT = canvas.height;
 
+// Parse URL parameters for testing/debugging
+const urlParams = new URLSearchParams(window.location.search);
+const startLives = parseInt(urlParams.get('lives')) || 3;
+const startLevel = parseInt(urlParams.get('level')) || 1;
+
 // Game state
 let score = 0;
-let lives = 3;
+let lives = startLives;
 let shield = 100;
-let level = 1;
+let level = startLevel;
 let gameOver = false;
 let keys = {};
 let bigBossMode = false;
@@ -191,6 +196,22 @@ function calculateLaserBossDamage(effectiveHits) {
 
 function getActivePierceBulletCount() {
     return player.bullets.reduce((count, bullet) => count + (bullet.pierce ? 1 : 0), 0);
+}
+
+// Calculate damage multiplier based on boss size
+// Big bosses (6x+): 0.5x damage (bigger target = less damage per hit)
+// Medium bosses (3x-6x): 0.75x damage
+// Small bosses (<3x): 1.0x damage (full damage)
+function getBossSizeDamageMultiplier(boss) {
+    const sizeScale = boss.width / boss.baseSize;
+
+    if (sizeScale >= 6) {
+        return 0.5; // Big bosses take half damage
+    } else if (sizeScale >= 3) {
+        return 0.75; // Medium bosses take 3/4 damage
+    } else {
+        return 1.0; // Small bosses take full damage
+    }
 }
 
 // Weapon power-up distribution functions
@@ -410,7 +431,14 @@ function initPumpkins() {
 
         // Progressive sizing: start at 2x, progress to 9x over 40 levels
         // Formula: scale = 2 + (level / 40) * 7, capped at 9x
-        const baseScale = 2 + Math.min(level / 40, 1) * 7;
+        // After level 25: randomize size for variety
+        let baseScale;
+        if (level > 25) {
+            // Randomize between 1.5x (small) and 9x (huge)
+            baseScale = 1.5 + Math.random() * 7.5;
+        } else {
+            baseScale = 2 + Math.min(level / 40, 1) * 7;
+        }
         const bossSize = PUMPKIN_SIZE * baseScale;
 
         // Progressive difficulty: HP increases with level (halved from original)
@@ -473,8 +501,13 @@ function initPumpkins() {
     for (let row = 0; row < PUMPKIN_ROWS; row++) {
         for (let col = 0; col < PUMPKIN_COLS; col++) {
             const isBoss = (row === 1) && bossCols.includes(col);
-            const faceType = Math.random() < 0.5 ? 'normal' : 'scary';
             const canShoot = !isBoss && Math.random() < 0.2; // 20% of non-boss pumpkins can shoot
+
+            // Randomize facial features for variety
+            const eyeStyles = ['triangle', 'round', 'oval', 'angry', 'square'];
+            const mouthStyles = ['zigzag', 'fangs', 'toothy', 'oval', 'wavy', 'grin'];
+            const randomEyeStyle = eyeStyles[Math.floor(Math.random() * eyeStyles.length)];
+            const randomMouthStyle = mouthStyles[Math.floor(Math.random() * mouthStyles.length)];
 
             pumpkins.push({
                 x: startX + col * PUMPKIN_SPACING,
@@ -487,7 +520,8 @@ function initPumpkins() {
                 exploding: false,
                 explosionFrame: 0,
                 isBoss: isBoss,
-                faceType: faceType,
+                eyeStyle: randomEyeStyle,
+                mouthStyle: randomMouthStyle,
                 baseSize: PUMPKIN_SIZE,
                 canShoot: canShoot,
                 shootCooldown: 0
@@ -501,6 +535,45 @@ function drawPlayer() {
     ctx.save();
     ctx.translate(player.x, player.y);
 
+    // Check if player has exactly 9 lives - transform into cat!
+    if (lives === 9) {
+        drawRealisticCat();
+    } else {
+        drawBat();
+    }
+
+    // Shield glow if active (same for both bat and cat)
+    if (shield > 0) {
+        const shieldAlpha = shield / 100;
+        // Color matches shield bar
+        let glowColor;
+        if (shield > 75) {
+            glowColor = '0, 255, 0'; // Green
+        } else if (shield > 50) {
+            glowColor = '136, 255, 0'; // Yellow-green
+        } else if (shield > 33) {
+            glowColor = '255, 170, 0'; // Orange
+        } else if (shield > 15) {
+            glowColor = '255, 102, 0'; // Dark orange
+        } else {
+            glowColor = '255, 0, 0'; // Red
+        }
+
+        ctx.strokeStyle = `rgba(${glowColor}, ${shieldAlpha * 0.6})`;
+        ctx.lineWidth = 3;
+        ctx.shadowColor = `rgb(${glowColor})`;
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.arc(0, 0, 35, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+    }
+
+    ctx.restore();
+}
+
+// Draw bat spaceship (original player design)
+function drawBat() {
     // Bat body (dark purple)
     ctx.fillStyle = getColor('#4a3580', '#0066cc');
     ctx.beginPath();
@@ -590,35 +663,150 @@ function drawPlayer() {
     ctx.moveTo(10, -2);
     ctx.lineTo(25, 2);
     ctx.stroke();
+}
 
-    // Shield glow if active
-    if (shield > 0) {
-        const shieldAlpha = shield / 100;
-        // Color matches shield bar
-        let glowColor;
-        if (shield > 75) {
-            glowColor = '0, 255, 0'; // Green
-        } else if (shield > 50) {
-            glowColor = '136, 255, 0'; // Yellow-green
-        } else if (shield > 33) {
-            glowColor = '255, 170, 0'; // Orange
-        } else if (shield > 15) {
-            glowColor = '255, 102, 0'; // Dark orange
-        } else {
-            glowColor = '255, 0, 0'; // Red
-        }
-        
-        ctx.strokeStyle = `rgba(${glowColor}, ${shieldAlpha * 0.6})`;
-        ctx.lineWidth = 3;
-        ctx.shadowColor = `rgb(${glowColor})`;
-        ctx.shadowBlur = 10;
-        ctx.beginPath();
-        ctx.arc(0, 0, 35, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
+// Draw realistic outline cat (9-lives transformation)
+function drawRealisticCat() {
+    // Determine glow intensity based on power-ups
+    let glowIntensity = 1;
+
+    // If has any active power-up, pulse the glow
+    const hasActivePowerUp = activePowerUps.laser || activePowerUps.autoshoot || activePowerUps.pierce;
+
+    // Maximum glow: pierce active while ANY clone has laser
+    const hasPierceWithCloneLaser = activePowerUps.pierce && cloneShips.some(clone => clone.hasLaser);
+
+    if (hasPierceWithCloneLaser) {
+        glowIntensity = 1.5; // Maximum glow
+    } else if (hasActivePowerUp) {
+        // Pulsing glow when any power-up is active
+        glowIntensity = 0.8 + Math.sin(Date.now() / 200) * 0.4; // Pulses between 0.4 and 1.2
     }
 
-    ctx.restore();
+    // Main body (with gray highlights for dimension)
+    ctx.fillStyle = '#1a1a1a';
+    ctx.beginPath();
+    ctx.ellipse(0, 2, 12, 16, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Head
+    ctx.beginPath();
+    ctx.arc(-3, -10, 11, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Ears
+    ctx.beginPath();
+    ctx.moveTo(-8, -18);
+    ctx.lineTo(-13, -28);
+    ctx.lineTo(-5, -20);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(2, -19);
+    ctx.lineTo(0, -28);
+    ctx.lineTo(5, -20);
+    ctx.closePath();
+    ctx.fill();
+
+    // Fur highlights (gray on black)
+    ctx.fillStyle = '#3a3a3a';
+    ctx.beginPath();
+    ctx.ellipse(-2, -8, 6, 4, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(2, 4, 8, 10, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Thick orange glowing outline
+    ctx.strokeStyle = '#FF6600';
+    ctx.lineWidth = 3 * glowIntensity;
+    ctx.shadowColor = '#FF6600';
+    ctx.shadowBlur = 15 * glowIntensity;
+
+    // Outline body
+    ctx.beginPath();
+    ctx.ellipse(0, 2, 12, 16, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Outline head
+    ctx.beginPath();
+    ctx.arc(-3, -10, 11, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Outline ears
+    ctx.beginPath();
+    ctx.moveTo(-8, -18);
+    ctx.lineTo(-13, -28);
+    ctx.lineTo(-5, -20);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(2, -19);
+    ctx.lineTo(0, -28);
+    ctx.lineTo(5, -20);
+    ctx.closePath();
+    ctx.stroke();
+
+    // Extra bright edge
+    ctx.strokeStyle = '#FF8C00';
+    ctx.lineWidth = 1.5 * glowIntensity;
+    ctx.shadowBlur = 20 * glowIntensity;
+    ctx.beginPath();
+    ctx.arc(-3, -10, 11, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+
+    // Green/yellow cat eyes (reflective)
+    ctx.fillStyle = '#9ACD32';
+    ctx.shadowColor = '#9ACD32';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.ellipse(-7, -11, 2, 3.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(-1, -12, 2, 3.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Vertical pupils
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.ellipse(-7, -11, 0.5, 2.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(-1, -12, 0.5, 2.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Tail
+    ctx.strokeStyle = '#FF6600';
+    ctx.lineWidth = 7 * glowIntensity;
+    ctx.shadowColor = '#FF6600';
+    ctx.shadowBlur = 12 * glowIntensity;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(8, 8);
+    ctx.quadraticCurveTo(18, 12, 15, 0);
+    ctx.stroke();
+
+    // Tail core
+    ctx.strokeStyle = '#1a1a1a';
+    ctx.lineWidth = 4;
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    ctx.moveTo(8, 8);
+    ctx.quadraticCurveTo(18, 12, 15, 0);
+    ctx.stroke();
+
+    // Orange aura (scaled by glow intensity)
+    ctx.strokeStyle = `rgba(255, 102, 0, ${0.4 * glowIntensity})`;
+    ctx.lineWidth = 3 * glowIntensity;
+    ctx.shadowColor = '#FF6600';
+    ctx.shadowBlur = 25 * glowIntensity;
+    ctx.beginPath();
+    ctx.arc(0, -2, 32, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
 }
 
 // Draw clone ship (bat design with health-based color)
@@ -739,6 +927,368 @@ function createWitch() {
     };
 }
 
+// Draw unique pumpkin eyes based on boss type or random style
+function drawPumpkinEyes(ctx, pumpkin) {
+    ctx.fillStyle = '#1a0a00';
+    ctx.strokeStyle = '#ff8800';
+    ctx.lineWidth = 1.5;
+
+    // Use stored eye style for regular pumpkins, or boss name lookup for big bosses
+    const eyeStyle = pumpkin.eyeStyle || getEyeStyleForBoss(pumpkin.name);
+
+    switch(eyeStyle) {
+        case 'triangle':
+            // Classic triangle eyes - larger
+            ctx.beginPath();
+            ctx.moveTo(-13, -6);
+            ctx.lineTo(-7, 0);
+            ctx.lineTo(-13, 6);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(13, -6);
+            ctx.lineTo(7, 0);
+            ctx.lineTo(13, 6);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            break;
+
+        case 'round':
+            // Round eyes - larger
+            ctx.beginPath();
+            ctx.arc(-10, 0, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(10, 0, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            break;
+
+        case 'oval':
+            // Oval/ellipse eyes - larger
+            ctx.beginPath();
+            ctx.ellipse(-10, 0, 4, 6, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.ellipse(10, 0, 4, 6, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            break;
+
+        case 'angry':
+            // Angry slanted eyes - larger
+            ctx.beginPath();
+            ctx.moveTo(-15, -9);
+            ctx.lineTo(-5, -3);
+            ctx.lineTo(-10, 3);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(15, -9);
+            ctx.lineTo(5, -3);
+            ctx.lineTo(10, 3);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            break;
+
+        case 'square':
+            // Square eyes - larger
+            ctx.fillRect(-15, -4, 8, 8);
+            ctx.strokeRect(-15, -4, 8, 8);
+            ctx.fillRect(7, -4, 8, 8);
+            ctx.strokeRect(7, -4, 8, 8);
+            break;
+
+        case 'crescent':
+            // Crescent moon eyes (happy/smiling eyes)
+            ctx.beginPath();
+            ctx.arc(-10, 0, 5, 0.2, Math.PI - 0.2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(10, 0, 5, 0.2, Math.PI - 0.2);
+            ctx.fill();
+            ctx.stroke();
+            break;
+
+        case 'diamond':
+            // Diamond shaped eyes
+            ctx.beginPath();
+            ctx.moveTo(-10, -6);
+            ctx.lineTo(-6, 0);
+            ctx.lineTo(-10, 6);
+            ctx.lineTo(-14, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(10, -6);
+            ctx.lineTo(14, 0);
+            ctx.lineTo(10, 6);
+            ctx.lineTo(6, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            break;
+
+        case 'star':
+            // Star eyes
+            drawStar(ctx, -10, 0, 5, 5);
+            drawStar(ctx, 10, 0, 5, 5);
+            break;
+
+        case 'spiral':
+            // Spiral/hypnotic eyes
+            for (let i = 0; i < 3; i++) {
+                ctx.beginPath();
+                ctx.arc(-10, 0, 2 + i * 2, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(10, 0, 2 + i * 2, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            break;
+    }
+}
+
+// Helper function to draw a star
+function drawStar(ctx, cx, cy, spikes, outerRadius) {
+    const innerRadius = outerRadius / 2;
+    let rot = Math.PI / 2 * 3;
+    const step = Math.PI / spikes;
+
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - outerRadius);
+
+    for (let i = 0; i < spikes; i++) {
+        ctx.lineTo(cx + Math.cos(rot) * outerRadius, cy + Math.sin(rot) * outerRadius);
+        rot += step;
+        ctx.lineTo(cx + Math.cos(rot) * innerRadius, cy + Math.sin(rot) * innerRadius);
+        rot += step;
+    }
+
+    ctx.lineTo(cx, cy - outerRadius);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+}
+
+// Draw unique pumpkin mouth based on boss type or random style
+function drawPumpkinMouth(ctx, pumpkin) {
+    ctx.fillStyle = '#1a0a00';
+    ctx.strokeStyle = '#ff8800';
+    ctx.lineWidth = 1.5;
+
+    // Nose (most have triangular nose)
+    const noseStyle = getNoseStyleForBoss(pumpkin.name);
+
+    if (noseStyle === 'triangle') {
+        ctx.beginPath();
+        ctx.moveTo(0, 3);
+        ctx.lineTo(-4, 9);
+        ctx.lineTo(4, 9);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+    } else if (noseStyle === 'round') {
+        ctx.beginPath();
+        ctx.arc(0, 6, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+    } else if (noseStyle === 'square') {
+        ctx.fillRect(-4, 3, 8, 8);
+        ctx.strokeRect(-4, 3, 8, 8);
+    }
+
+    // Use stored mouth style for regular pumpkins, or boss name lookup for big bosses
+    const mouthStyle = pumpkin.mouthStyle || getMouthStyleForBoss(pumpkin.name);
+
+    switch(mouthStyle) {
+        case 'zigzag':
+            // Classic zigzag smile - larger
+            ctx.beginPath();
+            ctx.moveTo(-12, 13);
+            ctx.lineTo(-8, 10);
+            ctx.lineTo(-4, 13);
+            ctx.lineTo(0, 10);
+            ctx.lineTo(4, 13);
+            ctx.lineTo(8, 10);
+            ctx.lineTo(12, 13);
+            ctx.fill();
+            ctx.stroke();
+            break;
+
+        case 'fangs':
+            // Jagged mouth with fangs - larger
+            ctx.beginPath();
+            ctx.moveTo(-14, 11);
+            ctx.lineTo(-11, 13);
+            ctx.lineTo(-8, 11);
+            ctx.lineTo(-5, 16);
+            ctx.lineTo(-3, 11);
+            ctx.lineTo(0, 13);
+            ctx.lineTo(3, 11);
+            ctx.lineTo(5, 16);
+            ctx.lineTo(8, 11);
+            ctx.lineTo(11, 13);
+            ctx.lineTo(14, 11);
+            ctx.fill();
+            ctx.stroke();
+            break;
+
+        case 'toothy':
+            // Big toothy grin with individual teeth - larger
+            ctx.beginPath();
+            ctx.moveTo(-14, 11);
+            ctx.lineTo(-14, 16);
+            ctx.lineTo(14, 16);
+            ctx.lineTo(14, 11);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            // Draw teeth
+            ctx.strokeStyle = '#ff8800';
+            for (let i = -12; i <= 12; i += 4) {
+                ctx.beginPath();
+                ctx.moveTo(i, 11);
+                ctx.lineTo(i, 16);
+                ctx.stroke();
+            }
+            break;
+
+        case 'oval':
+            // Simple oval "O" mouth - larger
+            ctx.beginPath();
+            ctx.ellipse(0, 13, 7, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            break;
+
+        case 'wavy':
+            // Wavy smile
+            ctx.beginPath();
+            ctx.moveTo(-12, 12);
+            ctx.quadraticCurveTo(-8, 14, -4, 12);
+            ctx.quadraticCurveTo(0, 10, 4, 12);
+            ctx.quadraticCurveTo(8, 14, 12, 12);
+            ctx.lineTo(12, 10);
+            ctx.quadraticCurveTo(8, 12, 4, 10);
+            ctx.quadraticCurveTo(0, 8, -4, 10);
+            ctx.quadraticCurveTo(-8, 12, -12, 10);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            break;
+
+        case 'grin':
+            // Wide grin (curved)
+            ctx.beginPath();
+            ctx.arc(0, 5, 12, 0.2, Math.PI - 0.2);
+            ctx.lineTo(10, 10);
+            ctx.arc(0, 8, 10, Math.PI - 0.2, 0.2, true);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            break;
+
+        case 'frown':
+            // Frown (sad mouth)
+            ctx.beginPath();
+            ctx.arc(0, 18, 12, Math.PI + 0.5, -0.5);
+            ctx.lineTo(10, 14);
+            ctx.arc(0, 16, 10, -0.5, Math.PI + 0.5, true);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            break;
+
+        case 'gap':
+            // Toothy grin with gap in middle
+            ctx.beginPath();
+            ctx.moveTo(-12, 10);
+            ctx.lineTo(-12, 14);
+            ctx.lineTo(-2, 14);
+            ctx.lineTo(-2, 10);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(2, 10);
+            ctx.lineTo(2, 14);
+            ctx.lineTo(12, 14);
+            ctx.lineTo(12, 10);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            break;
+    }
+}
+
+// Map boss names to eye styles - each of 17 bosses gets unique combo
+function getEyeStyleForBoss(name) {
+    const eyeMap = {
+        'LeBoss James': 'round',          // Round eyes + grin
+        'Boss Hog': 'oval',               // Oval eyes + toothy + round nose
+        'Mike Tyson': 'angry',            // Angry eyes + fangs
+        'Pumpkin Librarian': 'square',    // Square eyes + oval mouth
+        'The Great Pumpkin': 'star',      // Star eyes + wavy mouth
+        'Pumpzilla': 'diamond',           // Diamond eyes + fangs
+        'Count Pumpula': 'crescent',      // Crescent eyes + fangs
+        'Gourdfather': 'spiral',          // Spiral eyes + toothy
+        'Witch Hazel': 'triangle',        // Triangle eyes + grin + round nose
+        'Jack Skellington': 'oval',       // Oval eyes + zigzag
+        'Pumpkin Spice': 'round',         // Round eyes + wavy
+        'Smashing Pumpkins': 'square',    // Square eyes + fangs
+        'Pumpkin Pi': 'diamond',          // Diamond eyes + gap + square nose
+        'Squashbuckler': 'angry',         // Angry eyes + toothy
+        'Melon Lord': 'crescent',         // Crescent eyes + frown
+        'Pumpking Kong': 'star',          // Star eyes + fangs
+        'Cinderella': 'spiral'            // Spiral eyes + grin
+    };
+    // Default to triangle for regular pumpkins (not in map)
+    return eyeMap[name] || 'triangle';
+}
+
+// Map boss names to nose styles
+function getNoseStyleForBoss(name) {
+    const noseMap = {
+        'Boss Hog': 'round',
+        'Pumpkin Pi': 'square',
+        'Witch Hazel': 'round'
+    };
+    return noseMap[name] || 'triangle';
+}
+
+// Map boss names to mouth styles
+function getMouthStyleForBoss(name) {
+    const mouthMap = {
+        'LeBoss James': 'grin',
+        'Boss Hog': 'toothy',
+        'Mike Tyson': 'fangs',
+        'Pumpkin Librarian': 'oval',
+        'The Great Pumpkin': 'wavy',
+        'Pumpzilla': 'fangs',
+        'Count Pumpula': 'fangs',
+        'Gourdfather': 'toothy',
+        'Witch Hazel': 'grin',
+        'Jack Skellington': 'zigzag',
+        'Pumpkin Spice': 'wavy',
+        'Smashing Pumpkins': 'fangs',
+        'Pumpkin Pi': 'gap',
+        'Squashbuckler': 'toothy',
+        'Melon Lord': 'frown',
+        'Pumpking Kong': 'fangs',
+        'Cinderella': 'grin'
+    };
+    return mouthMap[name] || 'zigzag';
+}
+
 // Draw pumpkin with different damage stages
 function drawPumpkin(pumpkin) {
     if (!pumpkin.alive) return;
@@ -781,17 +1331,24 @@ function drawPumpkin(pumpkin) {
 
     // Draw ARELLA image if this is ARELLA boss
     if (pumpkin.isArella && arellaImage.complete) {
-        const imgSize = 40; // Size in canvas units
+        const imgSize = 40; // Base size before scaling
+        const safeScale = Math.max(scale, 0.0001);
+        const maxGlowPixels = WIDTH * 0.45;
+        let outerGlowRadius = Math.min(imgSize / 2 + 10, maxGlowPixels / safeScale);
+        const innerGlowRadius = Math.min(imgSize / 3, outerGlowRadius - 2);
+        if (outerGlowRadius <= innerGlowRadius) {
+            outerGlowRadius = innerGlowRadius + 2;
+        }
 
-        // Draw outer pink glow that fades into the image
-        const gradient = ctx.createRadialGradient(0, 0, imgSize/3, 0, 0, imgSize/2 + 10);
+        // Draw outer pink glow that fades into the image with capped radius
+        const gradient = ctx.createRadialGradient(0, 0, innerGlowRadius, 0, 0, outerGlowRadius);
         gradient.addColorStop(0, 'rgba(255, 105, 180, 0)');
-        gradient.addColorStop(0.6, 'rgba(255, 105, 180, 0.3)');
-        gradient.addColorStop(1, 'rgba(255, 105, 180, 0.8)');
+        gradient.addColorStop(0.65, 'rgba(255, 105, 180, 0.3)');
+        gradient.addColorStop(1, 'rgba(255, 105, 180, 0.6)');
 
         ctx.fillStyle = gradient;
         ctx.beginPath();
-        ctx.arc(0, 0, imgSize/2 + 10, 0, Math.PI * 2);
+        ctx.arc(0, 0, outerGlowRadius, 0, Math.PI * 2);
         ctx.fill();
 
         // Clip to circular shape to cut off dark corners of jpg
@@ -809,7 +1366,7 @@ function drawPumpkin(pumpkin) {
         ctx.strokeStyle = 'rgba(255, 182, 193, 0.6)';
         ctx.lineWidth = 2;
         ctx.shadowColor = '#ff69b4';
-        ctx.shadowBlur = 15;
+        ctx.shadowBlur = Math.min(15, 12);
         ctx.beginPath();
         ctx.arc(0, 0, imgSize/2, 0, Math.PI * 2);
         ctx.stroke();
@@ -869,87 +1426,16 @@ function drawPumpkin(pumpkin) {
     }
 
     if (pumpkin.damage >= damageForEyes) {
-        if (pumpkin.faceType === 'scary') {
-            // Scary eyes (angry slanted)
-            ctx.beginPath();
-            ctx.moveTo(-14, -8);
-            ctx.lineTo(-6, -3);
-            ctx.lineTo(-10, 2);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-
-            ctx.beginPath();
-            ctx.moveTo(14, -8);
-            ctx.lineTo(6, -3);
-            ctx.lineTo(10, 2);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-        } else {
-            // Normal eyes (triangles)
-            ctx.beginPath();
-            ctx.moveTo(-12, -5);
-            ctx.lineTo(-8, 0);
-            ctx.lineTo(-12, 5);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-
-            ctx.beginPath();
-            ctx.moveTo(12, -5);
-            ctx.lineTo(8, 0);
-            ctx.lineTo(12, 5);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-        }
+        // Draw eyes based on boss name for unique faces
+        drawPumpkinEyes(ctx, pumpkin);
     }
 
     if (pumpkin.damage >= damageForNose) {
-        // Nose (small triangle)
-        ctx.beginPath();
-        ctx.moveTo(0, 3);
-        ctx.lineTo(-3, 8);
-        ctx.lineTo(3, 8);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        if (pumpkin.faceType === 'scary') {
-            // Scary mouth (jagged with fangs)
-            ctx.beginPath();
-            ctx.moveTo(-12, 10);
-            ctx.lineTo(-10, 12);
-            ctx.lineTo(-8, 10);
-            ctx.lineTo(-6, 14);
-            ctx.lineTo(-4, 10);
-            ctx.lineTo(-2, 12);
-            ctx.lineTo(0, 10);
-            ctx.lineTo(2, 12);
-            ctx.lineTo(4, 10);
-            ctx.lineTo(6, 14);
-            ctx.lineTo(8, 10);
-            ctx.lineTo(10, 12);
-            ctx.lineTo(12, 10);
-            ctx.fill();
-            ctx.stroke();
-        } else {
-            // Normal mouth (zigzag)
-            ctx.beginPath();
-            ctx.moveTo(-10, 12);
-            ctx.lineTo(-7, 10);
-            ctx.lineTo(-4, 12);
-            ctx.lineTo(0, 10);
-            ctx.lineTo(4, 12);
-            ctx.lineTo(7, 10);
-            ctx.lineTo(10, 12);
-            ctx.fill();
-            ctx.stroke();
-        }
+        // Draw nose and mouth based on boss name for unique faces
+        drawPumpkinMouth(ctx, pumpkin);
     }
 
-    // Draw boss-specific accessories
+    // Draw boss-specific accessories and unique features
     if (pumpkin.name === 'LeBoss James') {
         // Draw beard
         ctx.fillStyle = '#1a0a00';
@@ -972,57 +1458,304 @@ function drawPumpkin(pumpkin) {
         ctx.lineTo(-6, 14);
         ctx.closePath();
         ctx.fill();
+        // Headband
+        ctx.fillStyle = '#FF6347';
+        ctx.fillRect(-18, -12, 36, 4);
     } else if (pumpkin.name === 'Boss Hog') {
         // Draw top hat
         ctx.fillStyle = '#000000';
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 1;
-
-        // Hat brim
         ctx.fillRect(-15, -26, 30, 3);
         ctx.strokeRect(-15, -26, 30, 3);
-
-        // Hat top
         ctx.fillRect(-10, -40, 20, 14);
         ctx.strokeRect(-10, -40, 20, 14);
-
-        // Hat band
         ctx.fillStyle = '#8B0000';
         ctx.fillRect(-10, -28, 20, 2);
-    } else if (pumpkin.name === 'Pumpkin Librarian') {
-        // Draw horn rim glasses
-        ctx.strokeStyle = '#000000';
-        ctx.fillStyle = '#87CEEB'; // Light blue lens tint
+        // Monocle
+        ctx.strokeStyle = '#FFD700';
         ctx.lineWidth = 2;
-
-        // Left lens
+        ctx.beginPath();
+        ctx.arc(10, -3, 5, 0, Math.PI * 2);
+        ctx.stroke();
+    } else if (pumpkin.name === 'Pumpkin Librarian') {
+        // Horn rim glasses
+        ctx.strokeStyle = '#000000';
+        ctx.fillStyle = 'rgba(135, 206, 235, 0.3)';
+        ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(-8, -5, 6, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
-
-        // Right lens
         ctx.beginPath();
         ctx.arc(8, -5, 6, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
-
-        // Bridge
         ctx.beginPath();
         ctx.moveTo(-2, -5);
         ctx.lineTo(2, -5);
         ctx.stroke();
-
-        // Left temple
         ctx.beginPath();
         ctx.moveTo(-14, -5);
         ctx.lineTo(-18, -5);
         ctx.stroke();
-
-        // Right temple
         ctx.beginPath();
         ctx.moveTo(14, -5);
         ctx.lineTo(18, -5);
+        ctx.stroke();
+    } else if (pumpkin.name === 'Mike Tyson') {
+        // Face tattoo (tribal pattern on left)
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-15, -8);
+        ctx.lineTo(-13, -5);
+        ctx.lineTo(-15, -2);
+        ctx.lineTo(-13, 1);
+        ctx.stroke();
+        // Championship belt around middle
+        ctx.fillStyle = '#FFD700';
+        ctx.fillRect(-20, 5, 40, 6);
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(-6, 6, 12, 4);
+        ctx.fillStyle = '#FFD700';
+        ctx.font = '8px Arial';
+        ctx.fillText('★', 0, 9);
+    } else if (pumpkin.name === 'Darth Pumpkin') {
+        // Vader helmet outline
+        ctx.fillStyle = '#000000';
+        ctx.strokeStyle = '#333333';
+        ctx.lineWidth = 1;
+        ctx.fillRect(-16, -20, 32, 8);
+        // Breathing apparatus
+        ctx.fillRect(-8, 8, 16, 8);
+        ctx.fillStyle = '#555555';
+        ctx.fillRect(-6, 10, 5, 4);
+        ctx.fillRect(1, 10, 5, 4);
+    } else if (pumpkin.name === 'Pumpkin Queen') {
+        // Crown
+        ctx.fillStyle = '#FFD700';
+        ctx.strokeStyle = '#FFA500';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 5; i++) {
+            const x = -16 + i * 8;
+            ctx.beginPath();
+            ctx.moveTo(x, -22);
+            ctx.lineTo(x + 3, -28);
+            ctx.lineTo(x + 6, -22);
+            ctx.fill();
+            ctx.stroke();
+        }
+        ctx.fillRect(-16, -22, 32, 3);
+        // Jewels on crown
+        ctx.fillStyle = '#FF0066';
+        for (let i = 0; i < 5; i++) {
+            ctx.beginPath();
+            ctx.arc(-12 + i * 6, -26, 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    } else if (pumpkin.name === 'Pumpkin King') {
+        // Royal crown with cross
+        ctx.fillStyle = '#FFD700';
+        ctx.fillRect(-12, -28, 24, 4);
+        for (let i = 0; i < 4; i++) {
+            ctx.beginPath();
+            ctx.moveTo(-10 + i * 7, -24);
+            ctx.lineTo(-8 + i * 7, -32);
+            ctx.lineTo(-6 + i * 7, -24);
+            ctx.fill();
+        }
+        // Ermine collar
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(-18, 12, 36, 4);
+        ctx.fillStyle = '#000000';
+        for (let i = 0; i < 7; i++) {
+            ctx.fillRect(-15 + i * 5, 13, 2, 2);
+        }
+    } else if (pumpkin.name === 'Pumpkinator') {
+        // Red glowing eyes (Terminator style)
+        ctx.fillStyle = '#FF0000';
+        ctx.shadowColor = '#FF0000';
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.arc(-8, -2, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(8, -2, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        // Metal endoskeleton showing through
+        ctx.strokeStyle = '#888888';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(-12, 4, 3, 0, Math.PI * 2);
+        ctx.stroke();
+    } else if (pumpkin.name === 'Pumpkin Thanos') {
+        // Infinity gauntlet (golden glove)
+        ctx.fillStyle = '#FFD700';
+        ctx.fillRect(-22, -5, 8, 12);
+        // Infinity stones
+        const stones = ['#9400D3', '#0000FF', '#00FF00', '#FFFF00', '#FF6600', '#FF0000'];
+        for (let i = 0; i < 6; i++) {
+            ctx.fillStyle = stones[i];
+            ctx.beginPath();
+            ctx.arc(-18 + (i % 3) * 3, -3 + Math.floor(i / 3) * 3, 1.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        // Chin ridges
+        ctx.strokeStyle = '#4B0082';
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 3; i++) {
+            ctx.beginPath();
+            ctx.moveTo(-6 + i * 4, 14);
+            ctx.lineTo(-4 + i * 4, 17);
+            ctx.stroke();
+        }
+    } else if (pumpkin.name === 'The Pumpkinkeeper') {
+        // Clockwork gears
+        ctx.strokeStyle = '#8B7355';
+        ctx.fillStyle = '#CD853F';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(-12, -8, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(12, 6, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        // Pocket watch chain
+        ctx.strokeStyle = '#FFD700';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(15, 8);
+        ctx.quadraticCurveTo(18, 12, 15, 16);
+        ctx.stroke();
+    } else if (pumpkin.name === 'The Pumpkin Overseer') {
+        // Third eye on forehead
+        ctx.fillStyle = '#9400D3';
+        ctx.shadowColor = '#9400D3';
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.ellipse(0, -12, 5, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#000000';
+        ctx.beginPath();
+        ctx.arc(0, -12, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(-1, -13, 1, 0, Math.PI * 2);
+        ctx.fill();
+    } else if (pumpkin.name === 'Pumpkin Loki') {
+        // Horned helmet
+        ctx.fillStyle = '#FFD700';
+        ctx.strokeStyle = '#DAA520';
+        ctx.lineWidth = 2;
+        // Left horn
+        ctx.beginPath();
+        ctx.moveTo(-15, -18);
+        ctx.quadraticCurveTo(-18, -28, -14, -35);
+        ctx.lineTo(-12, -34);
+        ctx.quadraticCurveTo(-15, -27, -13, -18);
+        ctx.fill();
+        ctx.stroke();
+        // Right horn
+        ctx.beginPath();
+        ctx.moveTo(15, -18);
+        ctx.quadraticCurveTo(18, -28, 14, -35);
+        ctx.lineTo(12, -34);
+        ctx.quadraticCurveTo(15, -27, 13, -18);
+        ctx.fill();
+        ctx.stroke();
+        // Helmet base
+        ctx.fillRect(-16, -20, 32, 4);
+    } else if (pumpkin.name === 'Pumpkineto') {
+        // Magneto helmet
+        ctx.fillStyle = '#8B0000';
+        ctx.strokeStyle = '#660000';
+        ctx.lineWidth = 1;
+        ctx.fillRect(-16, -20, 32, 10);
+        ctx.fillStyle = '#660000';
+        ctx.fillRect(-12, -18, 8, 6);
+        ctx.fillRect(4, -18, 8, 6);
+        // Helmet sides
+        ctx.beginPath();
+        ctx.moveTo(-16, -10);
+        ctx.lineTo(-18, 0);
+        ctx.lineTo(-16, 0);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(16, -10);
+        ctx.lineTo(18, 0);
+        ctx.lineTo(16, 0);
+        ctx.fill();
+    } else if (pumpkin.name === 'Pumpkin Predator') {
+        // Predator mask
+        ctx.fillStyle = '#4A4A4A';
+        ctx.fillRect(-14, -8, 28, 16);
+        // Mandibles
+        ctx.strokeStyle = '#333333';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-10, 8);
+        ctx.lineTo(-14, 12);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-3, 8);
+        ctx.lineTo(-6, 12);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(10, 8);
+        ctx.lineTo(14, 12);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(3, 8);
+        ctx.lineTo(6, 12);
+        ctx.stroke();
+    } else if (pumpkin.name === 'The Pumpkin Controller') {
+        // Headset with antenna
+        ctx.strokeStyle = '#000000';
+        ctx.fillStyle = '#1E90FF';
+        ctx.lineWidth = 2;
+        ctx.fillRect(-18, -8, 4, 12);
+        ctx.fillRect(14, -8, 4, 12);
+        // Microphone boom
+        ctx.beginPath();
+        ctx.moveTo(14, -2);
+        ctx.lineTo(10, 6);
+        ctx.stroke();
+        // Antenna
+        ctx.beginPath();
+        ctx.moveTo(-16, -8);
+        ctx.lineTo(-16, -18);
+        ctx.stroke();
+        ctx.fillStyle = '#FF0000';
+        ctx.beginPath();
+        ctx.arc(-16, -18, 2, 0, Math.PI * 2);
+        ctx.fill();
+    } else if (pumpkin.name === 'Cyber Pumpkin') {
+        // Cybernetic eye piece
+        ctx.fillStyle = '#FF0000';
+        ctx.shadowColor = '#FF0000';
+        ctx.shadowBlur = 8;
+        ctx.fillRect(6, -8, 10, 8);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#000000';
+        ctx.beginPath();
+        ctx.arc(11, -4, 2, 0, Math.PI * 2);
+        ctx.fill();
+        // Circuit lines
+        ctx.strokeStyle = '#00FF00';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(16, -4);
+        ctx.lineTo(19, -4);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(16, -2);
+        ctx.lineTo(19, -2);
         ctx.stroke();
     }
 
@@ -2671,7 +3404,11 @@ async function downloadScreenshot() {
     });
 }
 
-// Make screenshot function globally accessible
+// Make sharing functions globally accessible for HTML onclick handlers
+window.shareToTwitter = shareToTwitter;
+window.shareToDiscord = shareToDiscord;
+window.copyShareLink = copyShareLink;
+window.downloadScreenshot = downloadScreenshot;
 window.captureGameScreenshot = downloadScreenshot;
 
 // VIRAL FEATURE: Daily Challenge System (Section 4)
@@ -3043,16 +3780,19 @@ player.bullets = player.bullets.filter(bullet => {
                     bulletDamage = 1 + 1 + Math.floor((level - 10) / 5);
                 }
 
+                // Apply size-based damage reduction
+                const sizeDamageMultiplier = getBossSizeDamageMultiplier(bigBoss);
+
                 if (bullet.pierce) {
                     // Pierce: base 5 damage + 2 per scaling tier (boss levels only)
                     const scalingDamage = level >= 10
                         ? 5 + (Math.floor((level - 10) / 5) * 2)
                         : 5;
                     const pierceDamage = Math.min(10, scalingDamage);
-                    bigBoss.damage += pierceDamage * damageMultiplier;
+                    bigBoss.damage += pierceDamage * damageMultiplier * sizeDamageMultiplier;
                     playHitSound();
                 } else {
-                    bigBoss.damage += bulletDamage * damageMultiplier;
+                    bigBoss.damage += bulletDamage * damageMultiplier * sizeDamageMultiplier;
                     playHitSound();
                 }
 
@@ -3372,7 +4112,10 @@ player.bullets = player.bullets.filter(bullet => {
                 updateUI();
             } else if (powerUp.type === 'clone') {
                 // Add a new clone ship with 3 health
-                const offset = cloneShips.length === 0 ? -60 : 60;
+                // Use larger offset when player is cat (9 lives) to prevent overlap
+                const isCat = lives === 9;
+                const baseSpread = isCat ? 80 : 60;
+                const offset = cloneShips.length === 0 ? -baseSpread : baseSpread;
                 cloneShips.push({
                     x: player.x + offset,
                     y: player.y,
@@ -3459,12 +4202,15 @@ player.bullets = player.bullets.filter(bullet => {
     // Update clone ships (they last until a life is lost)
     cloneShips.forEach((clone, index) => {
         // Position clones around the player
+        // Use larger spacing when player is cat (9 lives) to prevent overlap
+        const isCat = lives === 9;
+        const baseSpread = isCat ? 80 : 60;
+
         const totalClones = cloneShips.length;
         if (totalClones === 1) {
-            clone.x = player.x - 60;
+            clone.x = player.x - baseSpread;
         } else {
-            const spread = 60;
-            const offset = (index - (totalClones - 1) / 2) * spread;
+            const offset = (index - (totalClones - 1) / 2) * baseSpread;
             clone.x = player.x + offset;
         }
         clone.y = player.y;
@@ -3613,7 +4359,8 @@ player.bullets = player.bullets.filter(bullet => {
 
         if (bigBossMode && bigBoss && bigBoss.alive && !bigBoss.exploding && effectiveBossLaserWeight > 0) {
             const totalBossDamage = calculateLaserBossDamage(effectiveBossLaserWeight);
-            bigBoss.damage += totalBossDamage;
+            const sizeDamageMultiplier = getBossSizeDamageMultiplier(bigBoss);
+            bigBoss.damage += totalBossDamage * sizeDamageMultiplier;
 
             if (bigBoss.damage >= bigBoss.maxDamage) {
                 bigBoss.exploding = true;
@@ -3722,7 +4469,7 @@ player.bullets = player.bullets.filter(bullet => {
             if (bigBoss.explosionFrame > 15) {
                 bigBoss.alive = false;
                 // Trigger level complete cutscene
-                levelCompleteMessage = 'Level ' + level + ' Complete!\n' + bigBoss.name + ' Defeated!';
+                levelCompleteMessage = 'Level ' + level + ' Complete!\n' + bigBoss.name + '\nDefeated!';
                 levelComplete = true;
                 levelCompleteTimer = 180; // 3 seconds at 60fps
 
@@ -3950,24 +4697,27 @@ function draw() {
     // Draw score in center (behind everything)
     if (!gameOver && !shipDestroying) {
         ctx.save();
-        ctx.font = 'bold 48px "Courier New", monospace';
-        ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+        ctx.font = '24px "Courier New", monospace';
+        ctx.fillStyle = '#FFFACD';
+        ctx.shadowColor = '#FFD700';
+        ctx.shadowBlur = 8;
         ctx.textAlign = 'center';
-        ctx.fillText('Score: ' + score, WIDTH / 2, 50);
+        ctx.fillText(score, WIDTH / 2, 20);
         ctx.restore();
     }
 
     // Draw game objects
 
-    // Draw ship or destruction
+    // Draw clone ships first (behind main ship)
+    for (let clone of cloneShips) {
+        drawCloneShip(clone);
+    }
+
+    // Draw main ship or destruction (on top of clones)
     if (shipDestroying) {
         drawShipDestruction();
     } else {
         drawPlayer();
-    }
-
-    for (let clone of cloneShips) {
-        drawCloneShip(clone);
     }
 
     // VIRAL FEATURE: Draw daily challenge badge (Section 9)
