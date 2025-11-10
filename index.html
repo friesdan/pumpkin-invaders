@@ -297,8 +297,8 @@
             });
         }
 
-        const urlParams = new URLSearchParams(window.location.search);
-        const ref = urlParams.get('ref');
+        // Track referral visits (urlParams already declared in game.js)
+        const ref = new URLSearchParams(window.location.search).get('ref');
         if (ref === 'share' && typeof gtag !== 'undefined') {
             gtag('event', 'referral_visit', {
                 event_category: 'acquisition',
